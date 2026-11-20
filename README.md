@@ -15,6 +15,8 @@ Arcade 3D table tennis that runs in the browser. No accounts, no installs.
 - **Timing**: early pulls the ball cross-court and deep, late pushes it down the line and shorter.
 - **Forehand / backhand**: hold the mouse right of centre for forehand, left of centre for backhand.
 - **Shape the shot**: swing up for topspin, down to chop, across to aim. A faster swing hits harder. Swing up hard at a gold ring to smash.
+- **Lob / drop shot**: swipe up slowly for a lob, down slowly for a drop shot (or hold `X` / `Z` as you swing). A perfectly timed full swing adds heavy spin.
+- **Sound**: synthesized bat, table, net, shoe squeaks, crowd and arena ambience. Toggle with the Sound button.
 - **Footwork**: automatic, or press `W` `A` `S` `D` to move your own feet. The floor ring and gauge show where to stand.
 - **Serve**: click or `Space` to toss, then swing as the ball drops.
 

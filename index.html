@@ -170,6 +170,7 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
     </div>
     <div class="tools">
       <span class="pill"><span class="dot" id="connDot"></span><span id="connTxt">Offline</span></span>
+      <button class="hbtn" id="sndBtn">Sound on</button>
       <button class="hbtn" id="recBtn">Records</button>
       <button class="hbtn" id="menuBtn">Menu</button>
     </div>
@@ -368,20 +369,23 @@ function point(winner, why){
   if (a>=to-1 && c>=to-1) sub = a===c ? 'Deuce' : `Advantage ${names[a>c?0:1]}`;
   else if (a===to-1 || c===to-1) sub = sub || (G.fmt.bestOf>1 && G.games[a>c?0:1] === Math.ceil(G.fmt.bestOf/2)-1 ? 'Match point' : 'Game point');
   banner(label, sub, why==='Ace'||why==='Winner'||why==='Missed' ? 'gold' : why==='Out'||why==='Net'||why==='Fault' ? 'red' : '');
-  sfx('point'); crowd(G.rally>=8 ? 1.2 : 0.7);
+  sfx('point');
+  const error = why==='Out' || why==='Net' || why==='Fault';
+  if (error && G.rally >= 6){ crowdOoh(0.9); crowd(0.35); }            // a long rally thrown away: the crowd groans
+  else crowd(G.rally >= 12 ? 1.5 : G.rally >= 6 ? 1 : 0.6);
 }
 function onEvent(e){
   const R = G.R; if (R.done) return;
   const h = R.hitter;
   if (e.t==='net'){ R.net = true; sfx('net'); return; }
   if (e.t==='cord'){
-    sfx('net');
+    sfx('cord'); crowdOoh(0.6);
     if (R.serve && !R.let){ R.let = true; }                              // a serve off the tape is a let, if it lands
     else quality(h, 'Net cord!', 'off', G.ball);
     return;
   }
   if (e.t==='table'){
-    sfx('bounce'); G.bounce = {x:e.x, z:e.z, t:0};
+    sfx('bounce', Math.min(1, Math.hypot(G.ball.vx, G.ball.vz)/12)); G.bounce = {x:e.x, z:e.z, t:0};
     if (R.serve && !R.own){ if (e.side===h) R.own = true; else point(1-h, 'Fault'); return; }
     if (R.serve && R.let && e.side!==h){ R.done = true; G.ph = 'point'; G.t = 0.6; banner('Let', 'Serve again', ''); G.letReplay = true; return; }
     if (e.side===h){ point(1-h, R.net ? 'Net' : 'Fault'); return; }
@@ -390,6 +394,7 @@ function onEvent(e){
     return;
   }
   if (e.t==='floor'){
+    sfx('floor');
     if (R.opp>=1) point(h, R.serve && G.rally===1 ? 'Ace' : (G.sk && G.sk.whiff ? 'Missed' : 'Winner'));
     else point(1-h, R.net ? 'Net' : 'Out');
   }
@@ -417,57 +422,70 @@ const incomingTo = p => G.ph==='rally' && !G.R.done && G.R.hitter===1-p;
 function grade(d){ const a = Math.abs(d); return a <= 0.035 ? {q:1, k:'Perfect!', c:'perfect'} : a <= 0.085 ? {q:0.78, k:'Good', c:'good'} : {q:0.5, k: d<0 ? 'Early' : 'Late', c:'off'}; }
 function strikeHit(p, intent, d){
   const b = G.ball, P = G.pl[p], s = sideSign(p), dir = dirOf(p);
+  const stretch = !!(G.sk && G.sk.stretch);
   let gq = grade(d);
-  if (G.sk && G.sk.stretch) gq = {q:Math.min(gq.q, 0.5), k:'Stretch', c:'off'};
+  if (stretch) gq = {q:Math.min(gq.q, 0.5), k:'Stretch', c:'off'};
   const q = gq.q;
   const inTs = b.ts, inSpeed = Math.hypot(b.vx, b.vz);
-  const high = b.y > TH + 0.4;
-  const power = clamp(intent.power, 0, 1) * (G.sk && G.sk.stretch ? 0.55 : 1), spin = clamp(intent.spin, -1, 1);
-  // timing shapes the shot: early pulls cross-court, late pushes down the line (mirrored on the backhand)
+  const power = clamp(intent.power, 0, 1) * (stretch ? 0.6 : 1), spin = clamp(intent.spin, -1, 1);
+  // direction: what you asked for, bent by timing (early pulls cross-court, late pushes down the line; mirrored on the backhand)
   const tShift = clamp(d/WIN, -1, 1);
-  const timingAim = (P.bh ? -1 : 1) * Math.sign(tShift) * Math.pow(Math.abs(tShift), 0.75) * 0.75;
-  const aim = clamp(clamp(intent.aim, -1, 1) + timingAim + rand(-0.16, 0.16)*(1.2 - q*0.6), -1.15, 1.15);
-  const smash = high && power > 0.55 && spin > -0.2;
-  let vh, ts, f;
-  if (smash){ vh = 12.5 + 3.5*q + power*1.5; ts = 0.45; f = rand(0.55, 0.85); }
-  else if (spin < -0.3){ vh = 4.6 + power*2.2 + q*0.6 + 0.08*inSpeed; ts = spin*(0.6 + 0.4*power); f = rand(0.45, 0.7) + power*0.15; }
-  else { vh = 5.2 + power*6.6 + q*1.1 + 0.15*inSpeed; ts = spin*(0.45 + 0.55*power); f = rand(0.45, 0.7) + power*0.22; }
-  if (!smash) f += -tShift*0.12 + rand(-0.06, 0.06);              // early (on the rise) runs deep, late (falling) lands shorter
-  // the error model: how likely this swing is to miss, and how
-  const stretch = !!(G.sk && G.sk.stretch);
-  const vsChop = inTs < -0.4 && spin < 0.2, vsLoop = inTs > 0.5 && Math.abs(spin) < 0.25 && power > 0.5;
-  const pErr = (q===1 ? 0.02 : q > 0.7 ? 0.065 : 0.18) + (stretch ? 0.12 : 0) + power*power*0.09*(1 - q*0.6)
-             + (vsChop ? 0.1 : 0) + (vsLoop ? 0.08 : 0) + (smash ? 0.05 : 0) + Math.abs(intent.aim)*0.04;
-  // what the incoming spin does to a stroke that doesn't counter it
+  const timingAim = (P.bh ? -1 : 1) * Math.sign(tShift) * Math.pow(Math.abs(tShift), 0.75) * 0.7;
+  const aim = clamp(clamp(intent.aim, -1, 1) + timingAim + rand(-0.1, 0.1)*(1.2 - q*0.7), -1.15, 1.15);
+  // which shot this is
+  let type;
+  if (b.y > TH + 0.38 && power > 0.5 && spin > -0.2 && !intent.lob && !intent.drop) type = 'smash';
+  else if (intent.lob || (spin > 0.25 && power < 0.36)) type = 'lob';
+  else if (intent.drop || (spin < -0.15 && power < 0.33)) type = 'drop';
+  else if (spin < -0.3) type = 'chop';
+  else type = 'drive';
+  const heavy = q===1 && Math.abs(spin) > 0.7 && power > 0.55 && (type==='drive' || type==='chop');
+  let vh, ts, f, lo = -3.5, hi = 6;
+  if (type==='smash'){ vh = 12.5 + 3.5*q + power*1.5; ts = 0.45; f = rand(0.55, 0.88); }
+  else if (type==='lob'){ vh = 4.4 + power*1.6; ts = 0.3 + Math.max(0, spin)*0.25; f = rand(0.72, 0.9); lo = 2.4; hi = 8; }
+  else if (type==='drop'){ vh = 2.7 + power*1.4; ts = -0.45 + Math.min(0, spin)*0.3; f = rand(0.16, 0.3); lo = -2; hi = 4; }
+  else if (type==='chop'){ vh = 4.6 + power*2.2 + q*0.6 + 0.08*inSpeed; ts = spin*(0.6 + 0.4*power); f = rand(0.5, 0.72) + power*0.12; }
+  else { vh = 5.2 + power*6.6 + q*1.1 + 0.15*inSpeed; ts = spin*(0.45 + 0.55*power); f = rand(0.5, 0.72) + power*0.2; }
+  if (heavy) ts *= 1.4;                                                  // a perfectly timed full brush loads the ball with spin
+  if (type==='drive' || type==='chop') f += -tShift*0.1;                // early runs deep, late lands shorter
+  // incoming spin you didn't counter
   const passive = 1 - clamp(Math.abs(spin)*1.4, 0, 1);
-  f += 0.2*Math.max(0, inTs)*passive;                                   // blocking heavy topspin pops long and high
-  f -= 0.16*Math.max(0, -inTs)*(1 - clamp(spin*1.6, 0, 1));            // pushing heavy backspin without lift drops short
-  const inSs = b.ss;
-  let tx = clamp(s*aim*0.68 - inSs*0.3*passive + rand(-0.06, 0.06), -0.74, 0.74);   // sidespin throws a passive bat sideways
+  if (type!=='smash' && type!=='lob'){ f += 0.18*Math.max(0, inTs)*passive; f -= 0.14*Math.max(0, -inTs)*(1 - clamp(spin*1.6, 0, 1)); }
+  // a clean swing stays on the table; misses come from the roll below
+  f = clamp(f, 0.12, q >= 0.78 ? 0.93 : 1.0);
+  let tx = clamp(s*aim*0.72 - b.ss*0.3*passive + rand(-0.04, 0.04), -0.72, 0.72);
+  // error model: hitting hard is safe when it's timed; bad timing, stretching and misread spin are what miss
+  const vsChop = inTs < -0.45 && spin < 0.15 && type!=='lob', vsLoop = inTs > 0.55 && Math.abs(spin) < 0.25 && power > 0.5;
+  const pErr = (q===1 ? 0.008 : q > 0.7 ? 0.03 : 0.12 + (Math.abs(tShift) > 0.85 ? 0.12 : 0))
+             + Math.pow(power, 3)*0.14*(1 - q) + (stretch ? 0.08 : 0)
+             + (vsChop ? 0.06*(1 - q*0.5) : 0) + (vsLoop ? 0.05*(1 - q*0.5) : 0)
+             + (type==='smash' ? 0.02 + (q < 0.6 ? 0.1 : 0) : 0) + (type==='drop' ? 0.04 : 0) + Math.max(0, Math.abs(aim) - 0.9)*0.25;
   if (Math.random() < pErr){
     const r = Math.random();
-    if (vsChop || (spin < -0.3 && r < 0.5) || r < 0.35) f = 0.02;                               // into the net
-    else if (Math.abs(intent.aim) > 0.6 && r < 0.6) tx = Math.sign(tx || 1)*rand(0.82, 1.0);    // out wide
-    else f = rand(1.06, 1.25);                                                                   // long
+    if (vsChop || type==='drop' || (spin < -0.3 && r < 0.5) || r < 0.35) f = 0.02;                // into the net
+    else if (Math.abs(aim) > 0.6 && r < 0.65) tx = Math.sign(tx || 1)*rand(0.82, 1.0);           // out wide
+    else f = rand(1.06, 1.22);                                                                    // long
   }
   const tProg = f < 0.04 ? 0.02 : f*END, tz = dir*tProg;   // f: fraction of the opponent's half from the net
   const dx = tx - b.x, dz = tz - b.z, dd = Math.hypot(dx,dz);
-  const ss = clamp(aim*0.18*power, -0.25, 0.25) * s;
+  const ss = clamp(aim*0.3*power, -0.4, 0.4) * s;                       // angled swings curve a little
   let shot;
-  if (f < 0.04){ shot = {...b, vx: dx/dd*vh*0.8, vz: dz/dd*vh*0.8, ts, ss}; shot.vy = aimVy(shot, 1, 0.3, dir, -3.5, 6) - 0.7; }   // into the net
-  else if (f > 1){ shot = {...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}; shot.vy = aimVy(shot, 1, 2.2, dir, -3.5, 6); }                // sails long
-  else shot = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 1, tProg, dir, -3.5, 6);
+  if (f < 0.04){ shot = {...b, vx: dx/dd*vh*0.8, vz: dz/dd*vh*0.8, ts, ss}; shot.vy = aimVy(shot, 1, 0.3, dir, -3.5, 6) - 0.7; }
+  else if (f > 1){ shot = {...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}; shot.vy = aimVy(shot, 1, 2.2, dir, -3.5, 6); }
+  else shot = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 1, tProg, dir, lo, hi);
   const hitAt = {x:b.x, y:b.y, z:b.z};
   const kmh = launch(p, shot.vx, shot.vy, shot.vz, ts, ss, false);
   const overTable = Math.abs(hitAt.z) < END - 0.05;
-  let kind = smash ? 'Smash' : ts > 0.55 ? 'Loop' : ts > 0.25 ? 'Drive' : ts < -0.4 ? 'Chop' : ts < -0.15 ? 'Push' : 'Block';
-  if (P.bh && !smash) kind = overTable && ts > 0.2 ? 'Backhand flick' : 'Backhand ' + kind.toLowerCase();
+  let kind = type==='smash' ? 'Smash' : type==='lob' ? 'Lob' : type==='drop' ? 'Drop shot'
+    : heavy ? (ts > 0 ? 'Heavy loop' : 'Heavy chop') : ts > 0.55 ? 'Loop' : ts > 0.25 ? 'Drive' : ts < -0.4 ? 'Chop' : ts < -0.15 ? 'Push' : 'Block';
+  if (P.bh && (type==='drive' || type==='chop')) kind = overTable && ts > 0.2 ? 'Backhand flick' : 'Backhand ' + kind.toLowerCase();
   G.lh = {p, k:kind, kmh, n:G.hits};
-  if (q===1) G.st[p].perf++; if (smash) G.st[p].smash++;
-  quality(p, smash ? 'Smash!' : gq.k, smash ? 'smash' : gq.c, hitAt);
-  startSwing(p, smash ? 'smash' : ts < -0.15 ? 'chop' : 'drive', hitAt);
-  sfx('hit', Math.min(1, kmh/70), q===1 || smash);
-  if (smash) fx('smash'); else if (q===1) fx('perfect');
+  if (q===1) G.st[p].perf++; if (type==='smash') G.st[p].smash++;
+  const big = type==='smash' ? 'Smash!' : type==='lob' ? 'Lob' : type==='drop' ? 'Drop shot' : heavy ? 'Heavy spin!' : gq.k;
+  quality(p, q < 1 && (type==='lob' || type==='drop') ? gq.k : big, type==='smash' ? 'smash' : heavy ? 'perfect' : gq.c, hitAt);
+  startSwing(p, type==='smash' ? 'smash' : ts < -0.15 ? 'chop' : 'drive', hitAt);
+  sfx('hit', Math.min(1, kmh/70), q===1 || type==='smash', type);
+  if (type==='smash'){ fx('smash'); crowdOoh(0.7); } else if (q===1) fx('perfect');
 }
 function serveHit(p, intent, d){
   const b = G.ball, s = sideSign(p), dir = dirOf(p);
@@ -529,7 +547,10 @@ function aiSwing(p){
   const oppSide = clamp(opp.x * -s * 1.2, -1, 1);          // aim away from where the opponent stands
   const aim = clamp(rand(-D.aimMax, D.aimMax)*0.55 + oppSide*0.6, -D.aimMax, D.aimMax);
   let power = rand(D.pMin, D.pMax), spin = b.ts < -0.3 ? rand(0.5, 1) : Math.random() < 0.22 ? rand(-1, -0.5) : rand(0.2, 1);
-  if (b.y > TH+0.42 && Math.random() < D.smash){ power = 1; spin = 0.6; }
+  if (b.y > TH+0.42 && Math.random() < D.smash){ power = 1; spin = 0.6; return {d, aim, spin, power}; }
+  const stretched = G.sk && G.sk.stretch, oppDeep = Math.abs(opp.z) > END + 1.0;
+  if (Math.random() < (stretched ? 0.35 : 0.035)) return {d, aim, spin: 0.5, power: 0.25, lob: true};      // buy time with a lob
+  if (Math.random() < (oppDeep ? 0.16 : 0.035)) return {d, aim, spin: -0.5, power: 0.25, drop: true};     // catch them deep with a drop
   return {d, aim, spin, power};
 }
 function aiServe(){
@@ -574,8 +595,8 @@ function step(dt){
     if (G.R.opp===1 && !G.sk && strikeReady(b, r, pz)){
       G.sk = {p:r, t:G.clock - left, done:false, whiff:false};
       const Pr = G.pl[r], gap = Math.hypot(Pr.x - Pr.tx, (Pr.z - Pr.tz)*0.6), lenient = manualFeet(r) ? 1.25 : isAI(r) ? 1 : 1.15;
-      G.sk.stretch = gap > 0.17*lenient;
-      if (gap > 0.36*lenient){ G.sk.done = true; G.sk.whiff = true; quality(r, 'Too far!', 'miss', b); startSwing(r, 'drive', null); }
+      G.sk.stretch = gap > 0.14*lenient;
+      if (gap > 0.3*lenient){ G.sk.done = true; G.sk.whiff = true; quality(r, 'Too far!', 'miss', b); startSwing(r, 'drive', null); }
       else if (isAI(r)){ const it = aiSwing(r); G.sk.done = true; if (it.d > 0.4){ G.sk.whiff = true; startSwing(r, 'drive', null); } else strikeHit(r, it, it.d); }
       else resolveStrike(r);
     }
@@ -636,6 +657,9 @@ function updatePlayers(dt){
       P.x += P.vx*dt; P.z += P.vz*dt;
     }
     P.walk += Math.hypot(P.x-ox, P.z-oz)*9;
+    const vxNow = (P.x - ox)/Math.max(dt, 1e-4);
+    if (Math.abs(P.pvx||0) > 1.0 && Math.sign(vxNow) !== Math.sign(P.pvx) && G.clock - (P.lastSq||-9) > 0.45){ P.lastSq = G.clock; sfx('squeak', p===viewSide ? 1 : 0.45); }
+    if (Math.abs(vxNow) > 0.05 || Math.abs(P.pvx||0) < 0.05) P.pvx = vxNow;
     P.crouch = lerp(P.crouch, G.ph==='rally' ? 1 : 0.4, Math.min(1, dt*6));
     P.cheer = Math.max(0, P.cheer - dt*0.8); P.slump = Math.max(0, P.slump - dt*0.8);
   }
@@ -668,7 +692,7 @@ addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; if (mode==='
 function keyIntent(){
   const aim = (keys['arrowright']?1:0) - (keys['arrowleft']?1:0);
   const spin = keys['arrowup'] ? 1 : keys['arrowdown'] ? -1 : 0.35;
-  return {t:G.clock, aim: aim*0.85, spin, power: keys['shift'] ? 1 : 0.62};
+  return {t:G.clock, aim: aim*0.9, spin, power: keys['shift'] ? 1 : 0.62, drop: !!keys['z'], lob: !!keys['x']};
 }
 function keyIntentFar(){
   const aim = (keys['a']?1:0) - (keys['d']?1:0);
@@ -716,7 +740,7 @@ function onHover(e){
       const last = arm.samples[arm.samples.length-1] || [0, start[0], start[1]];
       const dx = last[1] - start[0], dy = last[2] - start[1];
       if (G.ph==='serve' && G.srv.state==='hold') return;          // toss with a click or Space first
-      sendSwing(me, {t:clock, aim: swipeAim(dx, dy, innerWidth*0.16), spin: clamp(-dy/(innerHeight*0.13), -1, 1), power: clamp(0.25 + (arm.peak - 2.1)/8, 0.25, 1), mouse:true});
+      sendSwing(me, {t:clock, aim: swipeAim(dx, dy, innerWidth*0.11), spin: clamp(-dy/(innerHeight*0.13), -1, 1), power: clamp(0.42 + (arm.peak - 2.1)/6.5, 0.42, 1), mouse:true, drop: !!keys['z'], lob: !!keys['x']});
     }, 70);
   }
 }
@@ -728,7 +752,7 @@ cv.addEventListener('pointermove', e => {
 });
 cv.addEventListener('pointerup', e => { if (gesture && gesture.id===e.pointerId && !gesture.fired) fireGesture(true); gesture = null; });
 // aim from a swipe: its angle off straight up/down, or its sideways distance, whichever says more
-function swipeAim(dx, dy, px){ const byAngle = clamp(Math.atan2(dx, Math.abs(dy) + 6)/0.5, -1, 1), byDist = clamp(dx/px, -1, 1); return Math.abs(byAngle) > Math.abs(byDist) ? byAngle : byDist; }
+function swipeAim(dx, dy, px){ const byAngle = clamp(Math.atan2(dx, Math.abs(dy) + 6)/0.36, -1, 1), byDist = clamp(dx/px, -1, 1); return Math.abs(byAngle) > Math.abs(byDist) ? byAngle : byDist; }
 function fireGesture(tap){
   const g = gesture; if (!g) return; g.fired = true;
   const dx = g.x - g.x0, dy = g.y - g.y0, ms = Math.max(16, performance.now() - g.t0);
@@ -736,45 +760,116 @@ function fireGesture(tap){
   if (tap){
     // tap left or right of centre to aim; high on the screen to drive, low to chop
     const nx = (g.x0/innerWidth - 0.5)*2, ny = g.y0/innerHeight;
-    intent = {aim: clamp(nx*1.25, -1, 1), spin: ny < 0.45 ? 0.8 : ny > 0.75 ? -0.6 : 0.35, power: ny < 0.45 ? 0.65 : 0.55};
+    intent = {aim: clamp(nx*1.6, -1, 1), spin: ny < 0.25 ? 0.95 : ny < 0.5 ? 0.6 : ny > 0.78 ? -0.7 : 0.25, power: ny < 0.25 ? 0.8 : ny < 0.5 ? 0.65 : 0.55};
   } else { const speed = Math.hypot(dx,dy)/ms; intent = {aim: swipeAim(dx, dy, 110), spin: clamp(-dy/70, -1, 1), power: clamp(0.3 + speed*0.42, 0.3, 1)}; }
   intent.t = g.clock;
   const who = mode==='local' && g.y0 < innerHeight*0.4 ? 1 : me;
   sendSwing(who, intent);
 }
 
-/* ============ sound: all synthesized ============ */
-let ac = null, master = null;
+/* ============ sound: all synthesized, no files ============ */
+let ac = null, master = null, sfxBus = null, ambBus = null;
+const soundOn = () => prefs.sound !== false;
 function unlockAudio(){
   try {
     if (!ac){
       ac = new (window.AudioContext||window.webkitAudioContext)();
-      master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
-      const len = ac.sampleRate*2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
-      let last = 0; for (let i=0;i<len;i++){ last = (last + (Math.random()*2-1)*0.02)/1.02; d[i] = last*3.5; }
-      const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
-      const f = ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value = 700; f.Q.value = 0.6;
-      const g = ac.createGain(); g.gain.value = 0.05; src.connect(f); f.connect(g); g.connect(master); src.start();
+      master = ac.createGain(); master.gain.value = soundOn() ? 0.9 : 0; master.connect(ac.destination);
+      const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.connect(master);
+      sfxBus = ac.createGain(); sfxBus.connect(comp);
+      ambBus = ac.createGain(); ambBus.gain.value = 1; ambBus.connect(comp);
+      startAmbience();
     }
     if (ac.state==='suspended') ac.resume();
   } catch(e){}
 }
-function noise(len, shape){ const b = ac.createBuffer(1, Math.ceil(ac.sampleRate*len), ac.sampleRate), d = b.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1)*shape(i/d.length); const s = ac.createBufferSource(); s.buffer = b; return s; }
-function sfx(kind, power=0.5, big=false){
+function setSound(on){ prefs.sound = on; savePrefs(); if (master) master.gain.setTargetAtTime(on ? 0.9 : 0, ac.currentTime, 0.05); $('sndBtn').textContent = on ? 'Sound on' : 'Sound off'; }
+function brownBuffer(sec){ const len = Math.floor(ac.sampleRate*sec), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0); let last = 0; for (let i=0;i<len;i++){ last = (last + (Math.random()*2-1)*0.02)/1.02; d[i] = last*3.5; } return buf; }
+function startAmbience(){
+  // the room: a low hall hum, and a crowd murmuring that slowly swells and settles
+  const hum = ac.createBufferSource(); hum.buffer = brownBuffer(4); hum.loop = true;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+  const hg = ac.createGain(); hg.gain.value = 0.07; hum.connect(lp); lp.connect(hg); hg.connect(ambBus); hum.start();
+  const mur = ac.createBufferSource(); mur.buffer = brownBuffer(6); mur.loop = true; mur.playbackRate.value = 1.3;
+  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 520; bp.Q.value = 0.8;
+  const mg = ac.createGain(); mg.gain.value = 0.035;
+  const lfo = ac.createOscillator(), lg = ac.createGain(); lfo.frequency.value = 0.11; lg.gain.value = 0.018; lfo.connect(lg); lg.connect(mg.gain); lfo.start();
+  mur.connect(bp); bp.connect(mg); mg.connect(ambBus); mur.start();
+}
+function noiseBuf(len, shape){ const b = ac.createBuffer(1, Math.max(1, Math.ceil(ac.sampleRate*len)), ac.sampleRate), d = b.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1)*shape(i/d.length); return b; }
+function noise(len, shape){ const s = ac.createBufferSource(); s.buffer = noiseBuf(len, shape); return s; }
+function burst(t, len, gain, type, freq, q, curve=6, dest=sfxBus){
+  const s = noise(len, x => Math.pow(1-x, curve)); const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = ac.createGain(); g.gain.value = gain; s.connect(f); f.connect(g); g.connect(dest); s.start(t);
+}
+function ping(t, freq, dur, gain, type='sine', glide=0, dest=sfxBus){
+  const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (glide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq*glide), t+dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t+0.002); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g); g.connect(dest); o.start(t); o.stop(t+dur+0.02);
+}
+function sfx(kind, power=0.5, big=false, type='drive'){
   if (!ac || mode==='attract') return;
   try {
-    const t = ac.currentTime;
-    const chain = (src, type, freq, q, gain) => { const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q; const g = ac.createGain(); g.gain.value = gain; src.connect(f); f.connect(g); g.connect(master); src.start(t); };
+    const t = ac.currentTime + 0.002, j = () => rand(-1, 1);
     if (kind==='hit'){
-      chain(noise(0.05, x => Math.pow(1-x, 6)), 'bandpass', 1300 + power*1000, 2.2, 0.7 + power*0.6);
-      const o = ac.createOscillator(), g = ac.createGain(); o.frequency.setValueAtTime(big ? 900 : 700, t); o.frequency.exponentialRampToValueAtTime(220, t+0.06); g.gain.setValueAtTime(big?0.35:0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.08); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.1);
-    } else if (kind==='bounce') chain(noise(0.03, x => Math.pow(1-x, 5)), 'bandpass', 2800, 2.5, 0.45);
-    else if (kind==='net') chain(noise(0.12, x => Math.pow(1-x, 2)), 'lowpass', 600, 1, 0.5);
-    else if (kind==='whoosh'){ const s = noise(0.18, x => Math.sin(Math.PI*x)); const f = ac.createBiquadFilter(); f.type='bandpass'; f.Q.value = 1.2; f.frequency.setValueAtTime(500, t); f.frequency.exponentialRampToValueAtTime(2400, t+0.16); const g = ac.createGain(); g.gain.value = 0.25; s.connect(f); f.connect(g); g.connect(master); s.start(t); }
-    else if (kind==='toss'){ const o = ac.createOscillator(), g = ac.createGain(); o.frequency.setValueAtTime(500, t); o.frequency.exponentialRampToValueAtTime(900, t+0.12); g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.15); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.16); }
+      if (type==='smash'){                                                 // a hard crack
+        burst(t, 0.07, 1.1, 'highpass', 1400, 0.7, 4); ping(t, 1300 + j()*60, 0.06, 0.4, 'triangle', 0.35); ping(t, 150, 0.09, 0.45, 'sine', 0.6);
+      } else {
+        const soft = type==='lob' || type==='drop' ? 0.55 : 1;              // the hollow "pok" of a celluloid ball on rubber
+        ping(t, (type==='chop' ? 1450 : 1700) + j()*110, 0.045, (0.28 + power*0.32)*soft);
+        burst(t, 0.008, 0.45*soft, 'highpass', 2600, 0.7, 3);
+        ping(t, 320 + j()*20, 0.035, (0.1 + power*0.22)*soft, 'sine', 0.7);
+        if (big) ping(t, 2550, 0.03, 0.12, 'sine');
+      }
+    } else if (kind==='bounce'){                                           // "tik" on the table top
+      ping(t, 1120 + j()*70, 0.035, 0.18 + power*0.2); burst(t, 0.006, 0.25, 'bandpass', 3200, 1.2, 3); ping(t, 210, 0.04, 0.08, 'sine', 0.8);
+    } else if (kind==='floor'){
+      ping(t, 520 + j()*40, 0.05, 0.12); burst(t, 0.03, 0.12, 'lowpass', 1400, 0.7, 4);
+    } else if (kind==='net'){
+      burst(t, 0.14, 0.55, 'lowpass', 460, 0.8, 2); ping(t, 170, 0.1, 0.14, 'sine', 0.7);
+    } else if (kind==='cord'){
+      ping(t, 2300, 0.02, 0.18); burst(t, 0.1, 0.3, 'bandpass', 900, 1.5, 2);
+    } else if (kind==='whoosh'){
+      const s = noise(0.18, x => Math.sin(Math.PI*x)); const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.4;
+      f.frequency.setValueAtTime(450, t); f.frequency.exponentialRampToValueAtTime(2200 + power*1200, t+0.15);
+      const g = ac.createGain(); g.gain.value = 0.12 + power*0.18; s.connect(f); f.connect(g); g.connect(sfxBus); s.start(t);
+    } else if (kind==='squeak'){                                           // trainers on a sports floor
+      const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain(), v = ac.createOscillator(), vg = ac.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(2300 + j()*200, t); o.frequency.linearRampToValueAtTime(3400 + j()*300, t+0.08);
+      v.frequency.value = 55; vg.gain.value = 180; v.connect(vg); vg.connect(o.frequency);
+      f.type = 'bandpass'; f.frequency.value = 3000; f.Q.value = 6;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05*power, t+0.012); g.gain.exponentialRampToValueAtTime(0.0001, t+0.1);
+      o.connect(f); f.connect(g); g.connect(sfxBus); o.start(t); v.start(t); o.stop(t+0.12); v.stop(t+0.12);
+    } else if (kind==='toss'){ ping(t, 900, 0.05, 0.05, 'sine', 1.4); }
     else {
       const notes = kind==='win' ? [523,659,784,1046,1318] : [784,1046];
-      notes.forEach((n,i) => { const o = ac.createOscillator(), g = ac.createGain(); o.type='triangle'; o.frequency.value = n; o.connect(g); g.connect(master); g.gain.setValueAtTime(0.09, t+i*0.08); g.gain.exponentialRampToValueAtTime(0.001, t+i*0.08+0.3); o.start(t+i*0.08); o.stop(t+i*0.08+0.32); });
+      notes.forEach((n,i) => ping(t + i*0.08, n, 0.3, 0.08, 'triangle'));
+    }
+  } catch(e){}
+}
+function applause(level, dur=2.2){
+  // many hands: short clicks at a density that rises then thins out
+  const len = Math.floor(ac.sampleRate*dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  const claps = Math.floor(260*level*dur);
+  for (let c=0;c<claps;c++){
+    const pos = Math.pow(Math.random(), 1.6)*len, amp = 0.5 + Math.random()*0.5, w = Math.floor(ac.sampleRate*(0.003 + Math.random()*0.004));
+    for (let i=0;i<w && pos+i<len;i++) d[Math.floor(pos)+i] += (Math.random()*2-1)*amp*Math.pow(1 - i/w, 2);
+  }
+  const s = ac.createBufferSource(); s.buffer = buf; const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1700; f.Q.value = 0.5;
+  const g = ac.createGain(); g.gain.value = 0.16*level; s.connect(f); f.connect(g); g.connect(ambBus); s.start(ac.currentTime + 0.05);
+}
+function crowdOoh(level){
+  if (!ac || mode==='attract') return;
+  try {
+    // an "ooh": a voiced buzz through two vowel formants, rising then falling
+    const t = ac.currentTime, out = ac.createGain();
+    out.gain.setValueAtTime(0.0001, t); out.gain.exponentialRampToValueAtTime(0.1*level, t+0.22); out.gain.exponentialRampToValueAtTime(0.0001, t+1.1);
+    out.connect(ambBus);
+    for (const [base, spread] of [[150, 0], [185, 4], [125, -3]]){
+      const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(base, t); o.frequency.linearRampToValueAtTime(base*1.15 + spread, t+0.35); o.frequency.linearRampToValueAtTime(base*0.95, t+1.1);
+      for (const [fq, gq] of [[320, 0.9], [800, 0.35]]){ const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = fq; f.Q.value = 6; const g = ac.createGain(); g.gain.value = gq; o.connect(f); f.connect(g); g.connect(out); }
+      o.start(t); o.stop(t+1.15);
     }
   } catch(e){}
 }
@@ -785,7 +880,8 @@ function crowd(level){
     const t = ac.currentTime;
     const s = noise(2.2, x => Math.pow(Math.sin(Math.PI*Math.min(1, x*1.6)), 1.5) * (0.6 + 0.4*Math.random()));
     const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.5;
-    const g = ac.createGain(); g.gain.value = 0.22*level; s.connect(f); f.connect(g); g.connect(master); s.start(t);
+    const g = ac.createGain(); g.gain.value = 0.14*level; s.connect(f); f.connect(g); g.connect(ambBus); s.start(t);
+    applause(Math.min(1.5, level));
   } catch(e){}
 }
 
@@ -1034,15 +1130,15 @@ function render(rdt){
     const showSpot = manual && incomingTo(viewSide) && Pm.tts != null;
     if (showSpot){
       const ix = mode==='guest' ? (Pm.ix ?? Pm.tx) : Pm.tx, iz = mode==='guest' ? (Pm.iz ?? Pm.tz) : Pm.tz;
-      const gap = Math.hypot(Pm.x - ix, (Pm.z - iz)*0.6), col = gap < 0.17*1.25 ? 0x7dffb0 : gap < 0.36*1.25 ? 0xffd25e : 0xff6b5e;
+      const gap = Math.hypot(Pm.x - ix, (Pm.z - iz)*0.6), col = gap < 0.14*1.25 ? 0x7dffb0 : gap < 0.3*1.25 ? 0xffd25e : 0xff6b5e;
       spotRing.position.x = ix; spotRing.position.z = iz; spotRing.material.color.setHex(col); spotRing.material.opacity = 0.85;
       spotRing.scale.setScalar(1 + Math.sin(performance.now()/90)*0.06);
       spotDot.position.x = Pm.x; spotDot.position.z = Pm.z; spotDot.material.color.setHex(col); spotDot.material.opacity = 0.7;
       // on-screen gauge, in your own left/right and in/back
       const s = sideSign(viewSide), right = s*(ix - Pm.x), fwd = -s*(iz - Pm.z);
-      const el = $('feet'); el.style.opacity = '1'; el.className = 'feet' + (gap < 0.17*1.25 ? ' ok' : gap > 0.36*1.25 ? ' far' : '');
+      const el = $('feet'); el.style.opacity = '1'; el.className = 'feet' + (gap < 0.14*1.25 ? ' ok' : gap > 0.3*1.25 ? ' far' : '');
       $('feetMe').style.left = (50 - clamp(right/0.6, -1, 1)*46) + '%';
-      $('feetCue').textContent = gap < 0.17*1.25 ? 'In position' : Math.abs(right) >= Math.abs(fwd)*0.6 ? (right > 0 ? 'Step right ▶' : '◀ Step left') : (fwd > 0 ? 'Move in ▲' : 'Back up ▼');
+      $('feetCue').textContent = gap < 0.14*1.25 ? 'In position' : Math.abs(right) >= Math.abs(fwd)*0.6 ? (right > 0 ? 'Step right ▶' : '◀ Step left') : (fwd > 0 ? 'Move in ▲' : 'Back up ▼');
     } else { spotRing.material.opacity = Math.max(0, spotRing.material.opacity - rdt*5); spotDot.material.opacity = spotRing.material.opacity*0.8; $('feet').style.opacity = '0'; }
   }
   // the timing ring closes on the ball for whoever this screen plays
@@ -1297,8 +1393,8 @@ function applyHost(g){
   const b = G.ball, [x,y,z,vx,vy,vz,ts,ss] = g.b, d = Math.hypot(x-b.x, y-b.y, z-b.z);
   if (d > 0.3 || g.ph!==G.ph){ b.x=x; b.y=y; b.z=z; } else { b.x=lerp(b.x,x,0.4); b.y=lerp(b.y,y,0.4); b.z=lerp(b.z,z,0.4); }
   b.vx=vx; b.vy=vy; b.vz=vz; b.ts=ts; b.ss=ss;
-  if (g.h > G.hits && g.lh) sfx('hit', Math.min(1, g.lh.kmh/70), g.qp && (g.qp.cls==='perfect'||g.qp.cls==='smash'));
-  if (g.bn && (!G.bounce || Math.abs(G.bounce.x-g.bn[0])>1e-3 || Math.abs(G.bounce.z-g.bn[1])>1e-3)){ G.bounce = {x:g.bn[0], z:g.bn[1], t:0}; sfx('bounce'); }
+  if (g.h > G.hits && g.lh){ const k = g.lh.k || ''; sfx('hit', Math.min(1, g.lh.kmh/70), g.qp && (g.qp.cls==='perfect'||g.qp.cls==='smash'), /Smash/.test(k) ? 'smash' : /Lob/.test(k) ? 'lob' : /Drop/.test(k) ? 'drop' : /chop|Chop|Push|push/.test(k) ? 'chop' : 'drive'); }
+  if (g.bn && (!G.bounce || Math.abs(G.bounce.x-g.bn[0])>1e-3 || Math.abs(G.bounce.z-g.bn[1])>1e-3)){ G.bounce = {x:g.bn[0], z:g.bn[1], t:0}; sfx('bounce', Math.min(1, Math.hypot(vx, vz)/12)); }
   if (g.sc[0]!==G.sc[0] || g.sc[1]!==G.sc[1]) { sfx(g.ov ? 'win' : 'point'); crowd(0.8); }
   if (g.ph==='wait' && G.ph!=='wait') {}
   G.hits = g.h; G.ph = g.ph; G.t = g.t; G.sv = g.sv; G.first = g.fi; G.sc = g.sc.slice(); G.games = g.gm.slice(); G.gameNo = g.gn; G.gameScores = g.gs; G.fmt = g.fmt;
@@ -1390,6 +1486,7 @@ function renderRecords(){
 function openRecords(){ $('records').hidden = false; renderRecords(); $('recClose').focus(); }
 function closeRecords(){ $('records').hidden = true; }
 $('recBtn').onclick = openRecords;
+$('sndBtn').onclick = () => { unlockAudio(); setSound(!soundOn()); };
 $('menuBtn').onclick = () => openMenu();
 
 /* ============ menus ============ */
@@ -1398,6 +1495,7 @@ let paused = false;
 const prefs = (() => { try { return JSON.parse(localStorage.getItem('tableside:prefs')||'{}') || {}; } catch(e){ return {}; } })();
 function savePrefs(){ try { localStorage.setItem('tableside:prefs', JSON.stringify(prefs)); } catch(e){} }
 net.nick = cleanNick(prefs.nick||''); colors[0] = validColor(prefs.color, 0);
+$('sndBtn').textContent = prefs.sound === false ? 'Sound off' : 'Sound on';
 function setErr(t){ const e = $('err'); if (e) e.textContent = t; }
 function view(name, html, wide){ ov.dataset.view = name; ov.hidden = false; ov.innerHTML = `<div class="card${wide?' wide':''}">${html}</div>`; const f = ov.querySelector('[data-focus]') || ov.querySelector('button'); if (f) f.focus({preventScroll:true}); }
 function closeMenu(){ ov.hidden = true; ov.dataset.view = ''; }
@@ -1455,10 +1553,13 @@ function howTo(back){
       <b>Footwork</b><span>Your player moves to the ball automatically. Press <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move your feet yourself: A and D step across, W toward the table, S back. A ring on the floor marks the spot for the incoming ball and turns green when you're on it. Switch back in the pause menu.</span>
       <b>Forehand / backhand</b><span>Hold the mouse right of centre for a forehand, left of centre for a backhand. Your player sets up for the side you show, so pick early: switching late leaves you stretching.</span>
       <b>Early / late</b><span>Early pulls the ball cross-court and deep, late pushes it down the line and shorter. The further off, the bigger the angle, until you miss.</span>
-      <b>Touch</b><span>Tap left or right of centre to aim, high on the screen to drive, low to chop. Or swipe: the angle of your swipe aims the shot.</span>
+      <b>Touch</b><span>Tap left or right of centre to aim. Tap near the top for a loop, upper middle to drive, lower middle to block, near the bottom to chop. Or swipe: the angle of your swipe aims the shot, even a slight tilt.</span>
       <b>Flick</b><span>Drag and flick instead of clicking: up for topspin, down to chop backspin, left or right to aim. A faster flick hits harder.</span>
-      <b>Keys</b><span>Hold <kbd>←</kbd><kbd>→</kbd> to aim, <kbd>↑</kbd> for topspin, <kbd>↓</kbd> to chop, <kbd>Shift</kbd> for full power, then press <kbd>Space</kbd>.</span>
-      <b>Smash</b><span>A gold ring means a high ball. Flick up hard (or hold <kbd>Shift</kbd>) to smash.</span>
+      <b>Keys</b><span>Hold <kbd>←</kbd><kbd>→</kbd> to aim, <kbd>↑</kbd> for topspin, <kbd>↓</kbd> to chop, <kbd>Shift</kbd> for full power, <kbd>X</kbd> lob, <kbd>Z</kbd> drop shot, then press <kbd>Space</kbd>.</span>
+      <b>Smash</b><span>A gold ring means a high ball. Swing up hard (or hold <kbd>Shift</kbd>) to smash it.</span>
+      <b>Lob</b><span>Swipe up slowly, or hold <kbd>X</kbd> as you swing: a high, deep ball that buys time. Careful, it's a smash chance for them.</span>
+      <b>Drop shot</b><span>Swipe down slowly, or hold <kbd>Z</kbd> as you swing: a soft ball that dies just over the net. Deadly when they're standing deep.</span>
+      <b>Heavy spin</b><span>A perfectly timed, fast, full swing up or down loads the ball with spin: a heavy loop dives and kicks, a heavy chop stops dead.</span>
       <b>Serve</b><span>Tap once to toss, then again as the ball drops into the ring. It must bounce on your side first.</span>
       <b>Spin</b><span>Topspin kicks forward off the table. Backspin checks up and drops into the net if you just block it, so swing topspin against a chop.</span>
     </div>
