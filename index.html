@@ -56,7 +56,7 @@ button,input{font:inherit;color:inherit}
 .meter .bar{position:relative;width:min(320px,80vw);height:22px;border-radius:999px;background:linear-gradient(90deg,#3a1220,#1c2c58 40%,#1c2c58 60%,#3a1220);box-shadow:inset 0 0 0 2px var(--chip-line),0 6px 20px rgba(0,0,0,.5);overflow:hidden}
 .meter .zone{position:absolute;top:0;bottom:0;left:46%;width:8%;background:var(--perfect);box-shadow:0 0 14px var(--perfect)}
 .meter .needle{position:absolute;top:-2px;bottom:-2px;width:5px;margin-left:-2px;background:#fff;border-radius:3px;box-shadow:0 0 8px #fff}
-.trick{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 88px);border:0;border-radius:999px;padding:10px 16px;background:linear-gradient(90deg,#ff8a1d,#ffd25e);color:#2a1206;font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.05em;font-size:17px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
+.trick{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:5;border:0;border-radius:999px;padding:13px 22px;background:linear-gradient(90deg,#ff8a1d,#ffd25e);color:#2a1206;font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.05em;font-size:17px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
 .trick kbd{margin-left:6px;background:rgba(0,0,0,.15);border-color:rgba(0,0,0,.25);color:#2a1206}
 .emotes{flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(14,23,48,.92);padding:8px 10px;border-radius:999px;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:cardin .3s cubic-bezier(.2,1.4,.4,1)}
 .emotes span{font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.06em;color:var(--gold);padding:0 4px}
@@ -491,12 +491,13 @@ function strikeHit(p, intent, d){
   let tx = clamp(s*aim*0.72 - b.ss*0.3*passive + (q===1 ? 0 : rand(-0.05, 0.05)), -0.72, 0.72);
   // error model: hitting hard is safe when it's timed; bad timing, stretching and misread spin are what miss
   const vsChop = inTs < -0.45 && spin < 0.15 && type!=='lob', vsLoop = inTs > 0.55 && Math.abs(spin) < 0.25 && power > 0.5;
-  const pErr = (q===1 ? 0.004 : q > 0.7 ? 0.035 : 0.12 + (Math.abs(tShift) > 0.85 ? 0.12 : 0))
+  const pErrRaw = (q===1 ? 0.004 : q > 0.7 ? 0.035 : 0.12 + (Math.abs(tShift) > 0.85 ? 0.12 : 0))
              + Math.pow(power, 3)*0.14*(1 - q) + (stretch ? 0.08 : 0)
              + (vsChop ? 0.06*(1 - q*0.5) : 0) + (vsLoop ? 0.05*(1 - q*0.5) : 0)
              + (type==='smash' ? 0.02 + (q < 0.6 ? 0.1 : 0) : 0) + (type==='drop' ? 0.04 : 0) + Math.max(0, Math.abs(aim) - 0.9)*0.25
              + Math.max(0, -inTs - 1)*(spin > 0.6 ? 0.06 : 0.22)                  // monster backspin: only a real lift gets it over
              + (intense() ? 0.03 + (G.rally - PUSHBACK)*0.004 : 0);
+  const pErr = q===1 ? Math.max(0, -inTs - 1)*(spin > 0.6 ? 0.03 : 0.11) : pErrRaw;   // a Perfect only misses against monster backspin
   if (Math.random() < pErr){
     const r = Math.random();
     if (vsChop || type==='drop' || (spin < -0.3 && r < 0.5) || r < 0.35) f = 0.02;                // into the net
@@ -509,7 +510,19 @@ function strikeHit(p, intent, d){
   let shot;
   if (f < 0.04){ shot = {...b, vx: dx/dd*vh*0.8, vz: dz/dd*vh*0.8, ts, ss}; shot.vy = aimVy(shot, 1, 0.3, dir, -3.5, 6) - 0.7; }
   else if (f > 1){ shot = {...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}; shot.vy = aimVy(shot, 1, 2.2, dir, -3.5, 6); }
-  else shot = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 1, tProg, dir, lo, hi);
+  else {
+    // check the real flight (sidespin curve included) and correct the aim until it lands safely inside the lines
+    let aimX = tx, pace = vh;
+    for (let k=0;k<5;k++){
+      const ddx = aimX - b.x, ddz = tz - b.z, d2 = Math.hypot(ddx, ddz);
+      shot = shoot({...b, vx: ddx/d2*pace, vz: ddz/d2*pace, ts, ss}, 1, tProg, dir, lo, hi);
+      const land = predictBounce({...shot}, 1);
+      const inside = !land.net && !land.long && land.side !== p && Math.abs(land.x) < W/2 - 0.04 && Math.abs(land.z) < END - 0.04;
+      if (inside) break;
+      if (!land.net && !land.long && land.x !== undefined && Math.abs(land.x) >= W/2 - 0.04) aimX -= (land.x - Math.sign(land.x)*(W/2 - 0.1));   // curve took it wide: aim back in
+      pace *= 0.9;
+    }
+  }
   const hitAt = {x:b.x, y:b.y, z:b.z};
   const kmh = launch(p, shot.vx, shot.vy, shot.vz, ts, ss, false);
   G.R.smash = type==='smash'; G.R.badLob = type==='lob' && q < 1;
@@ -855,6 +868,8 @@ cv.addEventListener('pointerdown', e => {
   const id = e.pointerId;
   gesture = {id, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, t0:performance.now(), clock:G.clock, fired:false};
   // the press is the swing's timing; wait a beat to read a flick before choosing the shot
+  // on your serve, press and hold to start a trick serve instead of a normal toss
+  if (myServeHold()){ gesture.fired = true; const g = gesture; g.holdTimer = setTimeout(() => { if (gesture===g){ g.trick = true; tryTrick(); } }, 420); return; }
   setTimeout(() => { if (gesture && gesture.id===id && !gesture.fired) fireGesture(true); }, 110);
 });
 /* ---- mouse arm: the paddle follows the pointer; a fast swing through the ball is the hit ---- */
@@ -898,7 +913,9 @@ cv.addEventListener('pointermove', e => {
   gesture.x = e.clientX; gesture.y = e.clientY;
   if (Math.hypot(gesture.x-gesture.x0, gesture.y-gesture.y0) > 26) fireGesture(false);
 });
-cv.addEventListener('pointerup', e => { if (gesture && gesture.id===e.pointerId && !gesture.fired) fireGesture(true); gesture = null; });
+cv.addEventListener('pointerup', e => {
+  if (gesture && gesture.id===e.pointerId && gesture.holdTimer != null){ clearTimeout(gesture.holdTimer); if (!gesture.trick) sendSwing(mode==='local' ? G.sv : me, {t:G.clock, aim:0, spin:0.35, power:0.55}); gesture = null; return; }   // a short tap is the normal toss
+  if (gesture && gesture.id===e.pointerId && !gesture.fired) fireGesture(true); gesture = null; });
 // aim from a swipe: its angle off straight up/down, or its sideways distance, whichever says more
 function swipeAim(dx, dy, px){ const byAngle = clamp(Math.atan2(dx, Math.abs(dy) + 6)/0.36, -1, 1), byDist = clamp(dx/px, -1, 1); return Math.abs(byAngle) > Math.abs(byDist) ? byAngle : byDist; }
 function fireGesture(tap){
@@ -1474,7 +1491,7 @@ function hud(){
     const mine = mode==='local' ? G.sv : me;
     if (G.sv===mine){
       const k = mode==='local' && G.sv===1 ? 'F' : 'Space';
-      pr = G.srv.state==='hold' ? `Click, tap or <span class="key">${k}</span> to toss` : G.srv.state==='trick' ? `Swing, click or <span class="key">${k}</span> on the green` : G.ball.vy > 0 ? 'Wait for the drop…' : `Swing, click or <span class="key">${k}</span> to serve`;
+      pr = G.srv.state==='hold' ? `Tap or <span class="key">${k}</span> to toss · hold for a trick serve` : G.srv.state==='trick' ? `Swing, click or <span class="key">${k}</span> on the green` : G.ball.vy > 0 ? 'Wait for the drop…' : `Swing, click or <span class="key">${k}</span> to serve`;
     } else pr = `${esc(names[G.sv])} to serve`;
   }
   if (pr !== promptKey){ promptKey = pr; $('prompt').innerHTML = pr; }
