@@ -51,7 +51,14 @@ button,input{font:inherit;color:inherit}
 .rally.hot{background:linear-gradient(90deg,#b8261f,#ff8a1d);box-shadow:0 0 24px rgba(255,90,40,.7);animation:throb .55s ease-in-out infinite alternate}
 .rally.hot b{color:#fff}
 @keyframes throb{from{transform:translateX(-50%) scale(1)}to{transform:translateX(-50%) scale(1.08)}}
-.emotes{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(14,23,48,.92);padding:8px 10px;border-radius:999px;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:cardin .3s cubic-bezier(.2,1.4,.4,1)}
+.meter{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);transform:translateX(-50%);display:grid;justify-items:center;gap:6px;pointer-events:none}
+.meter .lab{font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.08em;color:var(--gold);font-size:18px;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+.meter .bar{position:relative;width:min(320px,80vw);height:22px;border-radius:999px;background:linear-gradient(90deg,#3a1220,#1c2c58 40%,#1c2c58 60%,#3a1220);box-shadow:inset 0 0 0 2px var(--chip-line),0 6px 20px rgba(0,0,0,.5);overflow:hidden}
+.meter .zone{position:absolute;top:0;bottom:0;left:46%;width:8%;background:var(--perfect);box-shadow:0 0 14px var(--perfect)}
+.meter .needle{position:absolute;top:-2px;bottom:-2px;width:5px;margin-left:-2px;background:#fff;border-radius:3px;box-shadow:0 0 8px #fff}
+.trick{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 88px);border:0;border-radius:999px;padding:10px 16px;background:linear-gradient(90deg,#ff8a1d,#ffd25e);color:#2a1206;font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.05em;font-size:17px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
+.trick kbd{margin-left:6px;background:rgba(0,0,0,.15);border-color:rgba(0,0,0,.25);color:#2a1206}
+.emotes{flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(14,23,48,.92);padding:8px 10px;border-radius:999px;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:cardin .3s cubic-bezier(.2,1.4,.4,1)}
 .emotes span{font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.06em;color:var(--gold);padding:0 4px}
 .emotes button{border:0;border-radius:999px;padding:8px 13px;background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--chip-line);cursor:pointer;font-family:var(--f-display);font-weight:800;text-transform:uppercase;letter-spacing:.04em;font-size:15px}
 .emotes button kbd{margin-left:6px}
@@ -184,10 +191,12 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
   </div>
 </div>
 <div class="rally" id="rally" style="opacity:0">Rally<b id="rallyN">0</b></div>
-<div class="emotes" id="emotes" hidden><span>Celebrate</span><button data-em="pump">Fist pump<kbd>1</kbd></button><button data-em="spin">Spin<kbd>2</kbd></button><button data-em="bow">Bow<kbd>3</kbd></button></div>
+<div class="emotes" id="emotes" hidden><span>Celebrate</span><button data-em="pump">Fist pump<kbd>1</kbd></button><button data-em="spin">Spin<kbd>2</kbd></button><button data-em="bow">Bow<kbd>3</kbd></button><button data-em="punch">K.O. punch<kbd>4</kbd></button><button data-em="blast">Blaster<kbd>5</kbd></button></div>
 <div class="banner" id="banner"></div>
 <div class="pops" id="pops"></div>
 <div class="prompt" id="prompt" style="opacity:0"></div>
+<div class="meter" id="meter" hidden><div class="lab">Hit the green!</div><div class="bar"><div class="zone"></div><div class="needle" id="needle"></div></div></div>
+<button class="trick" id="trickBtn" hidden>Trick serve<kbd>T</kbd></button>
 <div class="feet" id="feet" style="opacity:0"><div class="cue" id="feetCue">In position</div><div class="track"><div class="zone"></div><div class="me" id="feetMe"></div></div></div>
 <div class="speed" id="speed" style="opacity:0"><div class="k" id="speedK">Loop</div><div class="v"><span id="speedV">0</span><small>km/h</small></div></div>
 <div class="coach" id="coach" hidden>
@@ -338,7 +347,8 @@ function serverFor(sc, first){ const n = sc[0]+sc[1], deuce = G.fmt.to-1; if (sc
 function serveSpot(p){ const s = sideSign(p); return {x: s*0.18, z: s*(END+0.42)}; }
 function tossHand(p){ const P = G.pl[p], s = sideSign(p); return {x: P.x - s*0.22, y: TH+0.22, z: P.z - s*0.28}; }
 function placeForServe(){
-  G.ph = 'serve'; G.t = 0; G.rally = 0; G.sk = null; G.intent = [null,null]; G.chop = 0; G.eo = -1; G.pl.forEach(P => { P.emote = null; });
+  G.ph = 'serve'; G.t = 0; G.rally = 0; G.sk = null; G.intent = [null,null]; G.chop = 0; G.smashN = 0; G.eo = -1;
+  G.pl.forEach((P, i) => { P.emote = null; P.ko = null; P.yawX = 0; P.jumpAt = null; const sg = sideSign(i); if (P.z*sg < END + 0.1){ P.x = 0; P.z = sg*(END + 0.75); } });
   G.R = {hitter:-1, serve:false, own:false, opp:0, net:false, done:true};
   G.srv = {state:'hold', t:0};
   const sp = serveSpot(G.sv), P = G.pl[G.sv]; P.x = P.tx = sp.x; P.z = P.tz = sp.z; P.swing = null;
@@ -455,11 +465,14 @@ function strikeHit(p, intent, d){
   else type = 'drive';
   const heavy = q===1 && Math.abs(spin) > 0.7 && power > 0.55 && (type==='drive' || type==='chop');
   let vh, ts, f, lo = -3.5, hi = 6;
-  if (type==='smash'){ vh = 14 + 4*q + power*1.5; ts = 0.5; f = rand(0.6, 0.9); }
+  if (type==='smash'){
+    G.smashN = (G.smashN||0) + 1;                                          // every smash in the same rally hits harder
+    vh = 15 + 4*q + power*1.5 + Math.min(8, 2.6*(G.smashN - 1)); ts = 0.5; f = rand(0.6, 0.9); }
   else if (type==='lob'){ vh = 4.4 + power*1.6; ts = 0.3 + Math.max(0, spin)*0.25; f = q===1 ? rand(0.8, 0.92) : rand(0.28, 0.45); lo = q===1 ? 2.4 : 3.4; hi = 8; }   // a mistimed lob lands short and sits up
   else if (type==='drop'){ vh = 2.7 + power*1.4; ts = -0.45 + Math.min(0, spin)*0.3; f = rand(0.16, 0.3); lo = -2; hi = 4; }
-  else if (type==='chop'){ vh = 4.6 + power*2.2 + q*0.6 + 0.08*inSpeed; ts = spin*(0.6 + 0.4*power); f = rand(0.5, 0.72) + power*0.12; }
-  else { vh = 5.2 + power*6.6 + q*1.1 + 0.15*inSpeed; ts = spin*(0.45 + 0.55*power); f = rand(0.5, 0.72) + power*0.2; }
+  else if (type==='chop'){ vh = 3.6 + power*3.4 + q*0.6 + 0.08*inSpeed; ts = spin*(0.6 + 0.4*power); f = rand(0.5, 0.72) + power*0.12; }
+  else { vh = 3.8 + power*9.2 + q*1.0 + 0.12*inSpeed; ts = spin*(0.45 + 0.55*power); f = rand(0.5, 0.72) + power*0.2;
+    if (Math.abs(spin) < 0.3 && power < 0.55) vh *= 0.8; }                // soft blocks really are soft; full drives really fly
   if (heavy) ts *= 1.4;                                                  // a perfectly timed full brush loads the ball with spin
   // chop war: every chop in an unbroken run piles more backspin on top
   if (type==='chop'){ G.chop = (G.chop||0) + 1; ts *= Math.min(3, 1 + 0.3*(G.chop - 1));
@@ -501,19 +514,20 @@ function strikeHit(p, intent, d){
   const kmh = launch(p, shot.vx, shot.vy, shot.vz, ts, ss, false);
   G.R.smash = type==='smash'; G.R.badLob = type==='lob' && q < 1;
   if (type==='smash'){ P.jumpAt = G.clock - 0.12; }
-  sparks(hitAt, type==='smash' ? 0xffd25e : q===1 ? 0x7dffb0 : 0xffffff, type==='smash' ? 40 : q===1 ? 22 : 12, type==='smash' ? 2.4 : 1.4);
+  const sN = type==='smash' ? G.smashN : 0;
+  sparks(hitAt, type==='smash' ? (sN >= 3 ? 0xff5a3c : 0xffd25e) : q===1 ? 0x7dffb0 : 0xffffff, type==='smash' ? 36 + sN*18 : q===1 ? 22 : 12, type==='smash' ? 2.2 + sN*0.5 : 1.4);
   shake = Math.max(shake, type==='smash' ? 1 : 0.15);
   const overTable = Math.abs(hitAt.z) < END - 0.05;
-  let kind = type==='smash' ? 'Smash' : type==='lob' ? 'Lob' : type==='drop' ? 'Drop shot'
+  let kind = type==='smash' ? (sN > 1 ? `Smash ×${sN}` : 'Smash') : type==='lob' ? 'Lob' : type==='drop' ? 'Drop shot'
     : heavy ? (ts > 0 ? 'Heavy loop' : 'Heavy chop') : ts > 0.55 ? 'Loop' : ts > 0.25 ? 'Drive' : ts < -0.4 ? 'Chop' : ts < -0.15 ? 'Push' : 'Block';
   if (P.bh && (type==='drive' || type==='chop')) kind = overTable && ts > 0.2 ? 'Backhand flick' : 'Backhand ' + kind.toLowerCase();
   G.lh = {p, k:kind, kmh, n:G.hits};
   if (q===1) G.st[p].perf++; if (type==='smash') G.st[p].smash++;
-  const big = type==='smash' ? 'Smash!' : type==='lob' ? 'Lob' : type==='drop' ? 'Drop shot' : heavy ? 'Heavy spin!' : gq.k;
+  const big = type==='smash' ? (sN > 1 ? `Smash ×${sN}!` : 'Smash!') : type==='lob' ? 'Lob' : type==='drop' ? 'Drop shot' : heavy ? 'Heavy spin!' : gq.k;
   quality(p, q < 1 && (type==='lob' || type==='drop') ? gq.k : big, type==='smash' ? 'smash' : heavy ? 'perfect' : gq.c, hitAt);
   startSwing(p, type==='smash' ? 'smash' : ts < -0.15 ? 'chop' : 'drive', hitAt);
   sfx('hit', Math.min(1, kmh/70), q===1 || type==='smash', type);
-  if (type==='smash'){ fx('smash'); crowdOoh(0.7); } else if (q===1) fx('perfect');
+  if (type==='smash'){ fx('smash'); if (sN >= 2){ slowUntil = performance.now() + 520 + sN*160; shake = 1 + sN*0.3; crowd(0.6 + sN*0.3); } crowdOoh(0.7); } else if (q===1) fx('perfect');
 }
 function serveHit(p, intent, d){
   const b = G.ball, s = sideSign(p), dir = dirOf(p);
@@ -536,11 +550,52 @@ function serveHit(p, intent, d){
   sfx('hit', 0.4, q===1);
 }
 function toss(p){ if (G.srv.state!=='hold') return; G.srv = {state:'toss', t:0}; G.ball.vy = 2.35; G.ball.vx = G.ball.vz = 0; sfx('toss'); }
+/* trick serve: a huge toss and a pirouette, then stop a fast meter in a narrow green zone. Nail it and the serve is nearly unreturnable; miss and it's a fault. */
+const TRICK_ZONE = 0.04;
+const meterPos = t => { const x = (Math.max(0, t)/0.42) % 2; return x < 1 ? x : 2 - x; };   // sweeps 0..1..0, about 0.6 s per pass
+function trickToss(p){
+  if (G.srv.state!=='hold') return;
+  G.srv = {state:'trick', t:0}; G.ball.vy = 4.3; G.ball.vx = G.ball.vz = 0;
+  G.pl[p].emote = {k:'spin', t0:G.clock};
+  banner('Trick serve!', 'Stop the meter in the green', 'gold'); sfx('toss'); sfx('whoosh', 0.8); crowdOoh(0.5);
+}
+function trickServeHit(p, m){
+  const b = G.ball, s = sideSign(p), dir = dirOf(p), ok = Math.abs(m - 0.5) <= TRICK_ZONE;
+  G.pl[p].emote = null;
+  const hitAt = {x:b.x, y:Math.max(b.y, TH+0.15), z:b.z}; b.y = hitAt.y;
+  let shot, ts, ss;
+  if (ok){
+    // wicked: heavy spin one way or the other, a big curve, skimming low and deep
+    // wicked: heavy spin one way or the other, a big curve, skimming low and deep, and it must land (ease the curve until it does)
+    const tsSign = Math.random() < 0.5 ? 1 : -1, ssSign = Math.random() < 0.5 ? 1 : -1;
+    for (const k of [1, 0.75, 0.5, 0.3, 0]){
+      ts = tsSign*1.35*Math.max(0.5, k); ss = ssSign*0.9*k*s;
+      const tx = clamp(rand(-0.45, 0.45) - ssSign*s*0.25*k, -0.55, 0.55), prog = rand(0.72, 0.86)*END;   // aim against the curve
+      const dx = tx - b.x, dz = dir*prog - b.z, dd = Math.hypot(dx,dz), vh = 6.4;
+      shot = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 2, prog, dir, -5, 0.5);
+      const land = predictBounce({...shot}, 2);
+      if (!land.net && !land.long && land.firstSide === p && land.side !== p && Math.abs(land.x) < W/2 - 0.03) break;
+    }
+  } else {
+    ts = 0.6; ss = 0.6*s;                                                  // botched: into the net or off the end
+    const dx = rand(-0.4, 0.4) - b.x, long = Math.random() < 0.5, dz = dir*(long ? 1.3*END : 0.05) - b.z, dd = Math.hypot(dx,dz);
+    shot = {...b, vx: dx/dd*6, vz: dz/dd*6, ts, ss, vy: long ? 0.6 : -5};
+  }
+  G.ph = 'rally';
+  const kmh = launch(p, shot.vx, shot.vy, shot.vz, ts, ss, true);
+  G.R.trick = ok;
+  G.lh = {p, k: ok ? 'Trick serve' : 'Botched trick serve', kmh, n:G.hits};
+  quality(p, ok ? 'Nailed it!' : 'Botched!', ok ? 'smash' : 'miss', hitAt);
+  startSwing(p, 'serve', hitAt);
+  sfx('hit', ok ? 0.9 : 0.4, ok, ok ? 'smash' : 'drive');
+  if (ok){ G.st[p].perf++; fx('perfect'); sparks(hitAt, 0xffd25e, 40, 2.2); crowdOoh(0.9); }
+}
 // a swing from player p: {t: game clock of the press | d: remote timing offset, aim, spin, power}
 function swing(p, intent){
   const P = G.pl[p];
   if (G.ph==='serve' && G.sv===p){
-    if (G.srv.state==='hold'){ toss(p); return; }
+    if (G.srv.state==='hold'){ if (intent.trick) trickToss(p); else toss(p); return; }
+    if (G.srv.state==='trick'){ trickServeHit(p, intent.m !== undefined ? clamp(+intent.m, 0, 1) : meterPos(G.srv.t)); return; }
     const b = G.ball;
     if (b.vy > 0) return;                                  // still rising: wait for the drop
     const d = (TH + 0.34 - b.y) / 1.6;                     // height error expressed as timing
@@ -601,19 +656,24 @@ function step(dt){
     const p = G.sv;
     if (G.srv.state==='hold'){
       Object.assign(b, tossHand(p)); b.vx=b.vy=b.vz=0;
-      if (isAI(p) && G.t > 0.45) toss(p);
+      if (isAI(p) && G.t > 0.45){ if (mode!=='attract' && Math.random() < (diff.label==='Champion' ? 0.1 : 0.06)) trickToss(p); else toss(p); }
     } else {
       b.vy -= GRAV*dt; b.y += b.vy*dt; G.srv.t += dt;
       const h = tossHand(p); b.x = h.x; b.z = h.z;
-      if (isAI(p) && b.vy < 0 && b.y <= TH+0.34){ const it = aiServe(); serveHit(p, it, it.d); }
+      if (G.srv.state==='trick'){
+        if (isAI(p) && b.vy < 0 && b.y <= TH+0.45) trickServeHit(p, 0.5 + rand(-0.12, 0.12));   // the computer lands about a third of them
+        else if (b.y < TH+0.1) trickServeHit(p, 0);                         // waited too long: botched
+      }
+      else if (isAI(p) && b.vy < 0 && b.y <= TH+0.34){ const it = aiServe(); serveHit(p, it, it.d); }
       else if (b.y < TH+0.06){ G.srv = {state:'hold', t:0}; G.t = 0.3; if (!isAI(p)) quality(p, 'Toss again', 'off', b); }
     }
     updatePlayers(dt); return;
   }
   if (G.ph==='point' || G.ph==='over' || G.ph==='between'){
     freeFly(dt); updatePlayers(dt);
-    if (G.ph==='point' && G.eo >= 0 && isAI(G.eo) && !G.pl[G.eo].emote && G.t > 0.35) emote(G.eo, ['pump','spin','bow'][Math.floor(Math.random()*3)]);
-    if (G.ph==='point' && G.t > (G.eo >= 0 ? 2.3 : 1.15)){ G.letReplay = false; placeForServe(); }
+    if (G.ph==='point' && G.eo >= 0 && isAI(G.eo) && !G.pl[G.eo].emote && G.t > 0.35) emote(G.eo, EMOTES[Math.floor(Math.random()*EMOTES.length)]);
+    const emA = G.eo >= 0 ? G.pl[G.eo].emote : null, emDur = emA ? ({punch:3.4, blast:2.8}[emA.k] || 1.9) : 0;
+    if (G.ph==='point' && (emA ? (G.clock - emA.t0 > emDur && G.t > 1.15) : G.t > (G.eo >= 0 ? 2.3 : 1.15))){ G.letReplay = false; placeForServe(); }
     if (G.ph==='between' && G.t > 2.0) nextGame();
     return;
   }
@@ -628,10 +688,10 @@ function step(dt){
     if (G.R.opp===1 && !G.sk && strikeReady(b, r, pz)){
       G.sk = {p:r, t:G.clock - left, done:false, whiff:false};
       const Pr = G.pl[r], gap = Math.hypot(Pr.x - Pr.tx, (Pr.z - Pr.tz)*0.6), lenient = manualFeet(r) ? 1.25 : isAI(r) ? 1 : 1.15;
-      G.sk.stretch = gap > 0.14*lenient || G.R.smash;
-      G.sk.smash = !!G.R.smash;
+      G.sk.stretch = gap > 0.14*lenient || G.R.smash || G.R.trick;
+      G.sk.smash = !!(G.R.smash || G.R.trick);
       if (gap > 0.3*lenient){ G.sk.done = true; G.sk.whiff = true; quality(r, 'Too far!', 'miss', b); startSwing(r, 'drive', null); }
-      else if (isAI(r) && G.R.smash && Math.random() > diff.smashRet){ G.sk.done = true; G.sk.whiff = true; quality(r, 'Too fast!', 'miss', b); startSwing(r, 'drive', null); }
+      else if (isAI(r) && (G.R.smash || G.R.trick) && Math.random() > (G.R.trick ? 0.2 : diff.smashRet/Math.max(1, G.smashN||1))){ G.sk.done = true; G.sk.whiff = true; quality(r, G.R.trick ? 'Too much spin!' : 'Too fast!', 'miss', b); startSwing(r, 'drive', null); }
       else if (isAI(r)){ const it = aiSwing(r); G.sk.done = true; if (it.d > 0.4){ G.sk.whiff = true; startSwing(r, 'drive', null); } else strikeHit(r, it, it.d); }
       else resolveStrike(r);
     }
@@ -657,6 +717,29 @@ const FH_CONTACT = {x:0.46, z:0.42}, BH_CONTACT = {x:-0.12, z:0.5};
 function updatePlayers(dt){
   for (let p=0;p<2;p++){
     const P = G.pl[p], s = sideSign(p);
+    if (P.ko != null){ P.crouch = 0; continue; }
+    const em = P.emote;
+    if (em && (em.k==='punch' || em.k==='blast')){
+      const et = G.clock - em.t0, V = G.pl[1-p];
+      if (em.k==='punch'){
+        const r = alongRoute(punchRoute(p), et*RUN_SPEED), ox = P.x, oz = P.z;
+        P.x = r.x; P.z = r.z; P.walk += Math.hypot(P.x-ox, P.z-oz)*9;
+        const want = r.done ? yawFor(p, V.x - P.x, V.z - P.z) : yawFor(p, r.dx, r.dz);
+        P.yawX = lerp(P.yawX||0, want, Math.min(1, dt*14));
+        if (r.done && em.arrivedAt == null) em.arrivedAt = G.clock;
+        if (em.arrivedAt != null && !em.hit && G.clock - em.arrivedAt > 0.2){ em.hit = true; knockOut(1-p, 'K.O.!', {x:V.x, y:1.55, z:V.z}); }
+      } else {
+        P.yawX = lerp(P.yawX||0, yawFor(p, V.x - P.x, V.z - P.z), Math.min(1, dt*8));
+        if (!em.hit && et > 0.75){ em.hit = true;
+          const m = paddles[p].position, tgt = {x:V.x, y:1.3, z:V.z};
+          for (let k=1;k<=8;k++){ const f = k/8; sparks({x: lerp(m.x, tgt.x, f), y: lerp(m.y, tgt.y, f), z: lerp(m.z, tgt.z, f)}, 0xfff1a8, 3, 0.4); }
+          sparks({x:m.x, y:m.y, z:m.z}, 0xffd25e, 20, 1.6);
+          knockOut(1-p, 'BANG!', tgt);
+        }
+      }
+      P.crouch = lerp(P.crouch, 0.3, Math.min(1, dt*6));
+      continue;
+    }
     let tx = P.tx, tz = P.tz;
     if (G.ph==='rally' && incomingTo(p) && (!G.sk || G.sk.p!==p || !G.sk.done)){
       const pr = G.pred[p] = predictStrike(p);
@@ -700,7 +783,33 @@ function updatePlayers(dt){
     P.cheer = Math.max(0, P.cheer - dt*0.8); P.slump = Math.max(0, P.slump - dt*0.8);
   }
 }
-function emote(p, kind){ const P = G.pl[p]; if (P.emote) return; P.emote = {k:kind, t0:G.clock}; if (kind==='pump') crowd(0.8); else if (kind==='spin') crowdOoh(0.6); else if (ac) applause(0.9); }
+const EMOTES = ['pump','spin','bow','punch','blast'];
+function emote(p, kind){
+  const P = G.pl[p]; if (P.emote) return;
+  P.emote = {k:kind, t0:G.clock, x0:P.x, z0:P.z};
+  if (kind==='pump') crowd(0.8); else if (kind==='spin') crowdOoh(0.6); else if (kind==='bow' && ac) applause(0.9); else crowdOoh(0.8);
+}
+/* slapstick: knocked flat with stars, back up for the next serve */
+function knockOut(v, text, at){
+  const V = G.pl[v]; if (V.ko != null) return;
+  V.ko = G.clock; banner(text, 'Down goes ' + names[v] + '!', 'red'); shake = 1.2; crowd(1.3);
+  sfx(text==='BANG!' ? 'bang' : 'punch'); setTimeout(() => sfx('bell'), 250);
+  sparks(at || {x:V.x, y:1.55, z:V.z}, text==='BANG!' ? 0xff5a3c : 0xffd25e, 34, 2);
+}
+const RUN_SPEED = 5.5;
+function punchRoute(p){
+  const A = G.pl[p], V = G.pl[1-p], em = A.emote, lane = (em.x0 >= 0 ? 1 : -1)*1.3;
+  return [[em.x0, em.z0], [lane, em.z0], [lane, V.z], [V.x + (lane > 0 ? 0.42 : -0.42), V.z]];
+}
+function alongRoute(pts, dist){
+  for (let i=1;i<pts.length;i++){
+    const [ax, az] = pts[i-1], [bx, bz] = pts[i], len = Math.hypot(bx-ax, bz-az);
+    if (dist <= len) { const k = len ? dist/len : 1; return {x: ax + (bx-ax)*k, z: az + (bz-az)*k, dx: bx-ax, dz: bz-az, done:false}; }
+    dist -= len;
+  }
+  const [lx, lz] = pts[pts.length-1], [px, pz] = pts[pts.length-2]; return {x:lx, z:lz, dx:lx-px, dz:lz-pz, done:true};
+}
+const yawFor = (p, dx, dz) => { const s = sideSign(p); return Math.atan2(-dx*s, -dz*s); };
 function startSwing(p, kind, hitPos){ const P = G.pl[p]; P.swing = {kind, t0: G.clock, bh: P.bh, hit: hitPos}; if (!hitPos) sfx('whoosh'); }
 
 /* ============ input ============ */
@@ -719,11 +828,12 @@ addEventListener('keydown', e => {
   keys[k] = true;
   if (k===' ' || k==='j'){ e.preventDefault(); unlockAudio(); arm.active = false; sendSwing(me, keyIntent()); }
   if (k==='f' && mode==='local') sendSwing(1, keyIntentFar());
+  if (k==='t') tryTrick();
   if ('wasd'.includes(k) && k.length===1 && ['cpu','host','guest'].includes(mode) && prefs.feet!=='manual'){
     prefs.feet = 'manual'; savePrefs(); toast('Footwork on WASD · switch back in the menu');
   }
   if (k==='escape'){ if (!$('records').hidden) closeRecords(); else openMenu(); }
-  if (['1','2','3'].includes(k)) myEmote(['pump','spin','bow'][+k-1]);
+  if (['1','2','3','4','5'].includes(k)) myEmote(EMOTES[+k-1]);
   if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; if (mode==='guest') net.push(); });
@@ -898,6 +1008,9 @@ function sfx(kind, power=0.5, big=false, type='drive'){
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05*power, t+0.012); g.gain.exponentialRampToValueAtTime(0.0001, t+0.1);
       o.connect(f); f.connect(g); g.connect(sfxBus); o.start(t); v.start(t); o.stop(t+0.12); v.stop(t+0.12);
     } else if (kind==='toss'){ ping(t, 900, 0.05, 0.05, 'sine', 1.4); }
+    else if (kind==='punch'){ ping(t, 120, 0.2, 0.7, 'sine', 0.45); burst(t, 0.09, 0.8, 'lowpass', 900, 0.8, 3); ping(t+0.01, 420, 0.08, 0.25, 'triangle', 0.5); }
+    else if (kind==='bang'){ burst(t, 0.22, 1.0, 'highpass', 250, 0.6, 3); ping(t, 70, 0.3, 0.7, 'sine', 0.4); burst(t+0.13, 0.25, 0.25, 'lowpass', 1200, 0.6, 2); }
+    else if (kind==='bell'){ ping(t, 1250, 0.7, 0.16, 'triangle'); ping(t, 2510, 0.5, 0.06, 'sine'); ping(t+0.22, 1250, 0.7, 0.16, 'triangle'); }
     else {
       const notes = kind==='win' ? [523,659,784,1046,1318] : [784,1046];
       notes.forEach((n,i) => ping(t + i*0.08, n, 0.3, 0.08, 'triangle'));
@@ -997,6 +1110,16 @@ function makeChar(p){
   c.shoe = [0,1].map(() => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.22), shoe); m.castShadow = true; scene.add(m); return m; });
   c.sleeves = [ball3(0.072, shirt), ball3(0.072, shirt)];
   c.v = Array.from({length:12}, () => new THREE.Vector3());
+  c.stars = new THREE.Group();
+  for (let k=0;k<5;k++){ const st = new THREE.Mesh(new THREE.OctahedronGeometry(0.035), new THREE.MeshBasicMaterial({color:0xffd25e})); const a = k/5*Math.PI*2; st.position.set(Math.cos(a)*0.17, Math.sin(a*2)*0.02, Math.sin(a)*0.17); c.stars.add(st); }
+  c.stars.visible = false; scene.add(c.stars);
+  c.blaster = new THREE.Group();
+  const bodyM = mat(0xff8a1d, {roughness:0.4}), trimM = mat(0x2f6fe0, {roughness:0.4});
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.2), bodyM); body.position.z = 0.06;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.14, 12), trimM); barrel.rotation.x = Math.PI/2; barrel.position.set(0, 0.012, 0.22);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.02, 12), mat(0xffd25e)); tip.rotation.x = Math.PI/2; tip.position.set(0, 0.012, 0.3);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.05), trimM); grip.position.set(0, -0.06, 0); grip.rotation.x = -0.3;
+  c.blaster.add(body, barrel, tip, grip); c.blaster.traverse(o => { if (o.isMesh) o.castShadow = true; }); c.blaster.visible = false; scene.add(c.blaster);
   return c;
 }
 function makePaddle(){
@@ -1099,6 +1222,20 @@ const hA = new THREE.Vector3(), hB = new THREE.Vector3(), hC = new THREE.Vector3
 const padX = new THREE.Vector3(), padY = new THREE.Vector3(), padZ = new THREE.Vector3(), padM = new THREE.Matrix4();
 function handPos(p, out){
   const P = G.pl[p], set = P.bh ? POSE.bh : POSE.fh;
+  const Vp = G.pl[1-p];
+  if (P.ko != null) return L2W(P, p, [0.55, 0.28, -0.25], out);                       // arms flopped out
+  if (P.emote && P.emote.k==='punch' && P.emote.arrivedAt != null){
+    const pt = G.clock - P.emote.arrivedAt, sh = tmpV.set(P.x + sideSign(p)*0.15, 1.38, P.z);
+    const head = hB.set(Vp.x, Vp.ko != null ? 0.5 : 1.58, Vp.z);
+    if (pt < 0.15) return out.copy(sh).lerp(head, -0.35*ease(pt/0.15)).setY(1.35);       // wind up
+    return out.copy(sh).lerp(head, Math.min(1, ease((pt-0.15)/0.06))*0.92);             // and swing
+  }
+  if (P.emote && P.emote.k==='blast'){
+    const et = G.clock - P.emote.t0, sh = tmpV.set(P.x + sideSign(p)*0.18, 1.38, P.z);
+    const dir = hB.set(Vp.x - sh.x, 1.3 - sh.y, Vp.z - sh.z).normalize();
+    const raise = ease(clamp((et - 0.15)/0.35, 0, 1)), kick = et > 0.75 && et < 0.95 ? Math.sin((et-0.75)/0.2*Math.PI)*0.12 : 0;
+    out.copy(sh).addScaledVector(dir, 0.55*raise - kick); out.y += (1 - raise)*-0.4 + kick*0.6; return out;
+  }
   if (P.emote && P.emote.k==='pump' && G.clock - P.emote.t0 < 1.6){ const et = G.clock - P.emote.t0; return L2W(P, p, [0.25, 1.55 + Math.abs(Math.sin(et*9))*0.3, 0.12], out); }
   const sw = P.swing;
   if (armControlled(p)){
@@ -1136,18 +1273,23 @@ function poseChar(p){
   const jt = P.jumpAt != null ? (G.clock - P.jumpAt)/0.5 : 2, jump = jt >= 0 && jt < 1 ? Math.sin(Math.PI*jt)*0.38 : 0;   // leaping into a smash
   const em = P.emote, et = em ? (G.clock - em.t0) : 9;
   const pump = em && em.k==='pump' && et < 1.6 ? Math.abs(Math.sin(et*9))*0.1 : 0;
-  const hipY = 0.86 - crouch + Math.abs(bob) + P.cheer*Math.abs(Math.sin(G.clock*14))*0.12 + jump + pump;
-  const lean = P.crouch*0.18 - P.slump*0.25 + (em && em.k==='bow' && et < 1.8 ? Math.sin(Math.min(1, et/0.5)*Math.PI/2)*0.9*(et < 1.3 ? 1 : 1 - (et-1.3)/0.5) : 0);
+  let hipY = 0.86 - crouch + Math.abs(bob) + P.cheer*Math.abs(Math.sin(G.clock*14))*0.12 + jump + pump;
+  let lean = P.crouch*0.18 - P.slump*0.25 + (em && em.k==='bow' && et < 1.8 ? Math.sin(Math.min(1, et/0.5)*Math.PI/2)*0.9*(et < 1.3 ? 1 : 1 - (et-1.3)/0.5) : 0);
   P.lift = jump;
+  const koF = P.ko != null ? ease((G.clock - P.ko)/0.45) : 0;
+  if (koF > 0){ hipY = lerp(hipY, 0.2, koF); lean = lerp(lean, -2.9, koF); }
   C.hips.position.set(P.x, hipY, P.z); C.hips.rotation.set(0, face, 0);
   const coil = (P.bh ? 0.42 : -0.22)*ease(P.wind);                        // wind-up: backhand turns the racket shoulder forward, forehand turns it back
   const swingT = P.swing ? Math.min(1,(G.clock-P.swing.t0)/0.26) : 1;
-  const spinE = em && em.k==='spin' && et < 0.9 ? ease(et/0.9)*Math.PI*2 : 0;   // a full pirouette
+  const spinE = (em && em.k==='spin' && et < 0.9 ? ease(et/0.9)*Math.PI*2 : 0) + (P.yawX||0);   // a full pirouette; or turning to run / aim
   const twist = coil*(1 - swingT) + (P.swing ? (P.swing.bh ? -1 : 1)*Math.sin(swingT*Math.PI)*0.45 : 0) + spinE;
-  const sh = V[0].set(P.x, hipY + 0.48, P.z - s*lean*0.25);
-  C.torso.position.set(P.x, (hipY + 0.1 + sh.y)/2 + 0.02, (P.z + sh.z)/2); C.torso.rotation.set(-s*lean*0.5, face + twist, 0); C.hips.rotation.y = face + spinE;
+  const Lt = lean*0.5, fx = -s*Math.sin(Lt);                              // torso tilt (forward is toward the net)
+  const sh = V[0].set(P.x, hipY + 0.48*Math.cos(Lt), P.z + 0.48*fx);
+  C.torso.position.set(P.x, (hipY + 0.1 + sh.y)/2 + 0.02, (P.z + sh.z)/2); C.torso.rotation.set(-s*Lt, face + twist, 0); C.hips.rotation.y = face + spinE;
   C.chest.position.copy(sh); C.chest.rotation.set(0, face + twist, 0);
-  const head = V[1].set(sh.x, sh.y + 0.23 - P.slump*0.06, sh.z - s*0.02);
+  const head = V[1].set(sh.x, sh.y + 0.23*Math.cos(Lt) - P.slump*0.06, sh.z + 0.23*fx - s*0.02*Math.cos(Lt));
+  // stars circle a knocked-out head
+  C.stars.visible = koF > 0.6; if (C.stars.visible){ C.stars.position.set(head.x, head.y + 0.2, head.z); C.stars.rotation.y = G.clock*6; }
   C.head.position.copy(head);
   // turn the head toward the ball
   const b = G.ball;
@@ -1175,9 +1317,12 @@ function poseChar(p){
     const foot = V[11].set(P.x + side*(0.16 + P.crouch*0.06), 0.06 + lift, P.z - s*Math.cos(ph)*0.08 + (i ? s*0.06 : -s*0.04));
     const knee = ik(hip, foot, 0.42, 0.42, tmpV.set(0, 0.2, -s), V[5]);
     setBone(C.thigh[i], hip, knee); setBone(C.shin[i], knee, foot);
-    C.shoe[i].position.set(foot.x, 0.035 + lift, foot.z - s*0.04); C.shoe[i].rotation.set(0, face, 0);
+    C.shoe[i].position.set(foot.x, 0.035 + lift, foot.z - s*0.04); C.shoe[i].rotation.set(0, face + spinE, 0);
   }
   const pad = paddles[p], sw = P.swing;
+  const blasting = P.emote && P.emote.k==='blast' && G.clock - P.emote.t0 < 2.6;
+  pad.visible = !blasting; C.blaster.visible = blasting;
+  if (blasting){ const Vb = G.pl[1-p]; C.blaster.position.copy(hand); C.blaster.lookAt(Vb.x, 1.3, Vb.z); }
   pad.position.copy(hand);
   const closing = sw ? (sw.kind==='chop' ? -0.7 : sw.kind==='smash' ? 0.6 : 0.4) : P.wind*0.2;
   const ay = padY.copy(hand).sub(elbow).normalize();                     // handle runs along the forearm
@@ -1186,7 +1331,7 @@ function poseChar(p){
   const ax = padX.crossVectors(ay, az).normalize();
   padM.makeBasis(ax, ay, az); pad.quaternion.setFromRotationMatrix(padM); pad.rotateX(closing);
 }
-let camX = 0, camLook = 0, heat = 0, nextBeat = 0;
+let camX = 0, camLook = 0, heat = 0, nextBeat = 0, camCut = 0;
 const dummyC = new THREE.Object3D();
 function render(rdt){
   const b = G.ball;
@@ -1247,7 +1392,7 @@ function render(rdt){
   { const f = 1 - Math.exp(-rdt*28); arm.x = lerp(arm.x, arm.tx, f); arm.y = lerp(arm.y, arm.ty, f); arm.z = lerp(arm.z, arm.tz, f); }
   for (let p=0;p<2;p++){
     // the player you stand behind turns see-through so the table stays visible
-    const C = chars[p], ghost = mode!=='attract' && p===viewSide;
+    const C = chars[p], ghost = mode!=='attract' && p===viewSide && (G.ph==='rally' || G.ph==='serve');   // solid again between points so celebrations read
     if (C.ghost !== ghost){ C.ghost = ghost; C.mats.forEach(m => { m.transparent = ghost; m.opacity = ghost ? 0.3 : 1; m.depthWrite = !ghost; m.needsUpdate = true; }); }
     poseChar(p);
   }
@@ -1263,9 +1408,17 @@ function render(rdt){
   camLook = lerp(camLook, (incomingTo(viewSide) ? b.x : 0)*0.25, Math.min(1, rdt*2));
   shake = Math.max(0, shake - rdt*2.5);
   const sx = (Math.random()-0.5)*shake*0.05, sy = (Math.random()-0.5)*shake*0.05;
+  const bigEm = G.ph==='point' && G.pl.find(P => P.emote && (P.emote.k==='punch' || P.emote.k==='blast'));
   if (mode==='attract'){
     const t = now*0.1; camera.position.set(Math.sin(t)*4.6, 2.4, Math.cos(t)*4.6); camera.lookAt(0, TH, 0);
+  } else if (bigEm){
+    // cut to a side-on view so the whole slapstick plays out in frame
+    const mx = (G.pl[0].x + G.pl[1].x)/2, mz = (G.pl[0].z + G.pl[1].z)/2, side = (bigEm.emote.x0 >= 0 ? 1 : -1);
+    camCut = lerp(camCut, 1, Math.min(1, rdt*4));
+    camera.position.set(lerp(camera.position.x, side*4.2 + sx, camCut*0.2), lerp(camera.position.y, 2.1 + sy, camCut*0.2), lerp(camera.position.z, mz*0.6, camCut*0.2));
+    camera.lookAt(mx*0.5, 1.0, mz);
   } else {
+    camCut = 0;
     const intro = (G.ph==='intro' || G.ph==='wait') && G.gameNo===1 ? ease(1 - Math.min(1, G.t/1.25)) : 0;
     const cy = (portrait ? 2.35 : 2.3) + intro*1.6, cz = s*(END + (portrait ? 3.3 : 3.05) + intro*1.5);
     camera.position.set(camX + sx + intro*s*2.5, cy + sy, cz);
@@ -1313,12 +1466,15 @@ function hud(){
   $('rally').style.opacity = mode!=='attract' && G.ph==='rally' && G.rally >= 4 ? '1' : '0'; $('rallyN').textContent = G.rally;
   $('rally').classList.toggle('hot', intense());
   $('emotes').hidden = !canEmote();
+  $('trickBtn').hidden = !myServeHold();
+  const trickOn = mode!=='attract' && G.ph==='serve' && G.srv.state==='trick';
+  $('meter').hidden = !trickOn; if (trickOn) $('needle').style.left = (meterPos(G.srv.t)*100) + '%';
   let pr = '';
   if (mode!=='attract' && mode!=='spectate' && G.ph==='serve'){
     const mine = mode==='local' ? G.sv : me;
     if (G.sv===mine){
       const k = mode==='local' && G.sv===1 ? 'F' : 'Space';
-      pr = G.srv.state==='hold' ? `Click, tap or <span class="key">${k}</span> to toss` : G.ball.vy > 0 ? 'Wait for the drop…' : `Swing, click or <span class="key">${k}</span> to serve`;
+      pr = G.srv.state==='hold' ? `Click, tap or <span class="key">${k}</span> to toss` : G.srv.state==='trick' ? `Swing, click or <span class="key">${k}</span> on the green` : G.ball.vy > 0 ? 'Wait for the drop…' : `Swing, click or <span class="key">${k}</span> to serve`;
     } else pr = `${esc(names[G.sv])} to serve`;
   }
   if (pr !== promptKey){ promptKey = pr; $('prompt').innerHTML = pr; }
@@ -1340,9 +1496,9 @@ const r3 = v => Math.round(v*1000)/1000;
 function pack(){
   const b = G.ball;
   return { b:[b.x,b.y,b.z,b.vx,b.vy,b.vz,b.ts,b.ss].map(r3), ph:G.ph, t:r3(G.t), sv:G.sv, fi:G.first, sc:G.sc, gm:G.games, gn:G.gameNo, gs:G.gameScores, fmt:G.fmt,
-    pl: G.pl.map(P => [r3(P.x), r3(P.z), P.bh?1:0, r3(P.wind), P.swing ? [P.swing.kind, r3(G.clock - P.swing.t0), P.swing.bh?1:0, P.swing.hit ? [r3(P.swing.hit.x), r3(P.swing.hit.y), r3(P.swing.hit.z)] : null] : null, r3(P.cheer), r3(P.slump), P.strikeY ? r3(P.strikeY) : 0, r3(P.tx), r3(P.tz), P.emote ? [P.emote.k, r3(G.clock - P.emote.t0)] : null, P.jumpAt != null ? r3(G.clock - P.jumpAt) : null]),
+    pl: G.pl.map(P => [r3(P.x), r3(P.z), P.bh?1:0, r3(P.wind), P.swing ? [P.swing.kind, r3(G.clock - P.swing.t0), P.swing.bh?1:0, P.swing.hit ? [r3(P.swing.hit.x), r3(P.swing.hit.y), r3(P.swing.hit.z)] : null] : null, r3(P.cheer), r3(P.slump), P.strikeY ? r3(P.strikeY) : 0, r3(P.tx), r3(P.tz), P.emote ? [P.emote.k, r3(G.clock - P.emote.t0), P.emote.arrivedAt != null ? r3(G.clock - P.emote.arrivedAt) : null] : null, P.jumpAt != null ? r3(G.clock - P.jumpAt) : null, P.ko != null ? r3(G.clock - P.ko) : null, r3(P.yawX||0)]),
     eo: G.eo ?? -1,
-    srv:G.srv.state, ev:G.ev, qp:G.qp, lh:G.lh, h:G.hits, lg:G.longest, ra:G.rally, ov:G.over, mid:G.mid, sa:G.sa,
+    srv:G.srv.state, srvT:r3(G.srv.t||0), ev:G.ev, qp:G.qp, lh:G.lh, h:G.hits, lg:G.longest, ra:G.rally, ov:G.over, mid:G.mid, sa:G.sa,
     st:G.st, ro:G.R.opp||0, sk: G.sk && !G.sk.done ? [G.sk.p, r3(G.clock - G.sk.t)] : null, bn: G.bounce ? [r3(G.bounce.x), r3(G.bounce.z)] : null };
 }
 /* direct browser-to-browser link (WebRTC via PeerJS). PeerJS's public broker only introduces the two players. */
@@ -1437,7 +1593,7 @@ function guestSwing(intent){
   if (net.sk && net.sk[0]===1) d = net.sk[1] + (performance.now() - net.lastPkt)/1000*SLOW;
   else { const pr = G.ph==='rally' && incomingTo(1) ? predictStrike(1) : null; d = pr ? -pr.t : -1; }
   net.swingN++;
-  net.pendingSwing = {n:net.swingN, d:r3(d), aim:r3(intent.aim), spin:r3(intent.spin), power:r3(intent.power)};
+  net.pendingSwing = {n:net.swingN, d:r3(d), aim:r3(intent.aim), spin:r3(intent.spin), power:r3(intent.power), trick: intent.trick ? 1 : 0, m: G.srv.state==='trick' ? r3(meterPos(G.srv.t)) : undefined};
   const P = G.pl[1]; P.localSwingAt = performance.now();
   if (G.ph!=='serve'){ P.swing = {kind: intent.spin < -0.3 ? 'chop' : 'drive', t0:G.clock, bh:P.bh, hit:null}; sfx('whoosh'); }
   net.push(); coachShots++;
@@ -1458,7 +1614,8 @@ function netTick(){
       const sw = pr.sw;
       if (sw && typeof sw.n==='number' && sw.n > net.lastSwingN){
         net.lastSwingN = sw.n;
-        const it = {d: clamp(+sw.d||0, -2, 2), aim: clamp(+sw.aim||0,-1,1), spin: clamp(+sw.spin||0,-1,1), power: clamp(+sw.power||0,0,1), remote:true};
+        const it = {d: clamp(+sw.d||0, -2, 2), aim: clamp(+sw.aim||0,-1,1), spin: clamp(+sw.spin||0,-1,1), power: clamp(+sw.power||0,0,1), remote:true, trick: sw.trick===1};
+        if (typeof sw.m === 'number') it.m = clamp(sw.m, 0, 1);
         if (G.ph==='serve' && G.sv===1) swing(1, it);
         else if (G.ph==='rally' && incomingTo(1)){
           G.pl[1].swing = {kind: it.spin < -0.3 ? 'chop' : 'drive', t0:G.clock, bh:G.pl[1].bh, hit:null};
@@ -1466,7 +1623,7 @@ function netTick(){
           else if (it.d >= -0.6) G.intent[1] = it;   // hold it until the ball arrives here
         }
       }
-      if (pr.em && typeof pr.em.n==='number' && pr.em.n > (net.lastEmN||0)){ net.lastEmN = pr.em.n; if (G.ph==='point' && G.eo===1 && ['pump','spin','bow'].includes(pr.em.k)) emote(1, pr.em.k); }
+      if (pr.em && typeof pr.em.n==='number' && pr.em.n > (net.lastEmN||0)){ net.lastEmN = pr.em.n; if (G.ph==='point' && G.eo===1 && EMOTES.includes(pr.em.k)) emote(1, pr.em.k); }
       if (typeof pr.rm==='number' && pr.rm > net.lastRematch){ net.lastRematch = pr.rm; if (G.over) rematch(); }
     }
     net.push();
@@ -1492,11 +1649,13 @@ function applyHost(g){
   if (g.ph==='wait' && G.ph!=='wait') {}
   G.hits = g.h; G.ph = g.ph; G.t = g.t; G.sv = g.sv; G.first = g.fi; G.sc = g.sc.slice(); G.games = g.gm.slice(); G.gameNo = g.gn; G.gameScores = g.gs; G.fmt = g.fmt;
   G.eo = g.eo ?? -1; if (G.ph!=='point') net.pendingEmote = null;
-  G.srv.state = g.srv; G.ev = g.ev; G.qp = g.qp; G.lh = g.lh; G.longest = g.lg; G.rally = g.ra; G.mid = g.mid; G.sa = g.sa; G.st = g.st;
+  G.srv.state = g.srv; G.srv.t = g.srvT || 0; G.ev = g.ev; G.qp = g.qp; G.lh = g.lh; G.longest = g.lg; G.rally = g.ra; G.mid = g.mid; G.sa = g.sa; G.st = g.st;
   G.R.hitter = G.ph==='rally' ? (b.vz > 0 ? 1 : 0) : -1; G.R.done = G.ph!=='rally'; G.R.opp = g.ro || 0;   // the guest needs to know the ball has already bounced on its side
   g.pl.forEach((a, i) => {
     const P = G.pl[i]; P.tx = a[0]; P.tz = a[1]; P.ix = a[8]; P.iz = a[9]; P.bh = !!a[2];
-    if (a[10]){ if (!P.emote || P.emote.k !== a[10][0]) P.emote = {k:a[10][0], t0:G.clock - a[10][1]}; } else if (!(i===1 && net.pendingEmote && G.ph==='point')) P.emote = null;
+    if (a[10]){ if (!P.emote || P.emote.k !== a[10][0]) P.emote = {k:a[10][0], t0:G.clock - a[10][1]}; P.emote.arrivedAt = a[10][2] != null ? G.clock - a[10][2] : null; } else if (!(i===1 && net.pendingEmote && G.ph==='point')) P.emote = null;
+    const koWas = P.ko; P.ko = a[12] != null ? G.clock - a[12] : null; P.yawX = a[13] || 0;
+    if (koWas == null && P.ko != null){ shake = 1.2; sfx(G.pl[1-i].emote && G.pl[1-i].emote.k==='blast' ? 'bang' : 'punch'); setTimeout(() => sfx('bell'), 250); }
     if (a[11] != null && a[11] < 1){ const j0 = G.clock - a[11]; if (P.jumpAt == null || Math.abs(P.jumpAt - j0) > 0.1) P.jumpAt = j0; } P.wind = a[3]; P.cheer = a[5]; P.slump = a[6]; P.strikeY = a[7] || null;
     const recentLocal = i===1 && P.localSwingAt && performance.now() - P.localSwingAt < 450;
     if (a[4] && !recentLocal){ const age = a[4][1]; if (!P.swing || Math.abs((G.clock - P.swing.t0) - age) > 0.08) P.swing = {kind:a[4][0], t0:G.clock - age, bh:!!a[4][2], hit: a[4][3] ? {x:a[4][3][0], y:a[4][3][1], z:a[4][3][2]} : null}; }
@@ -1582,6 +1741,9 @@ function renderRecords(){
 function openRecords(){ $('records').hidden = false; renderRecords(); $('recClose').focus(); }
 function closeRecords(){ $('records').hidden = true; }
 $('recBtn').onclick = openRecords;
+function myServeHold(){ return G.ph==='serve' && G.srv.state==='hold' && (mode==='local' || G.sv===me) && ['cpu','local','host','guest'].includes(mode); }
+function tryTrick(){ if (!myServeHold()) return; unlockAudio(); sendSwing(mode==='local' ? G.sv : me, {t:G.clock, aim:0, spin:0, power:0.5, trick:true}); }
+$('trickBtn').onclick = tryTrick;
 document.querySelectorAll('#emotes button').forEach(b => b.onclick = () => myEmote(b.dataset.em));
 function canEmote(){ return G.ph==='point' && G.eo >= 0 && (mode==='local' || G.eo===me) && !G.pl[G.eo].emote && ['cpu','local','host','guest'].includes(mode); }
 function myEmote(kind){
@@ -1662,9 +1824,10 @@ function howTo(back){
       <b>Smash</b><span>A gold ring means a high ball. Swing up hard (or hold <kbd>Shift</kbd>) to jump into a smash. Smashes are brutal: only a Perfect swing gets one back.</span>
       <b>Lob</b><span>Swipe up slowly, or hold <kbd>X</kbd> as you swing: a high, deep ball that buys time. Only a Perfect lob goes deep; a mistimed one lands short and sits up to be smashed.</span>
       <b>Drop shot</b><span>Swipe down slowly, or hold <kbd>Z</kbd> as you swing: a soft ball that dies just over the net. Deadly when they're standing deep.</span>
-      <b>Long rallies</b><span>Past 20 shots both players are pushed back off the table: faster, riskier, louder. Win a rally of 15+ and you get to celebrate (buttons, or keys <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>).</span>
+      <b>Long rallies</b><span>Past 20 shots both players are pushed back off the table: faster, riskier, louder. Win a rally of 15+ and you get to celebrate: fist pump, spin, bow, a K.O. punch or the blaster (buttons, or keys <kbd>1</kbd>–<kbd>5</kbd>).</span>
       <b>Chop war</b><span>Every chop in a row piles on more backspin. Keep pushing it back and it gets nearly unplayable; lift it with real topspin to break the cycle.</span>
       <b>Heavy spin</b><span>A perfectly timed, fast, full swing up or down loads the ball with spin: a heavy loop dives and kicks, a heavy chop stops dead.</span>
+      <b>Trick serve</b><span>Press <kbd>T</kbd> or tap <b>Trick serve</b> before your toss. A huge toss, a spin, and a meter sweeps fast: swing as the needle crosses the narrow green zone. Nail it and the serve is nearly unreturnable. Miss and it's a fault.</span>
       <b>Serve</b><span>Tap once to toss, then again as the ball drops into the ring. It must bounce on your side first.</span>
       <b>Spin</b><span>Topspin kicks forward off the table. Backspin checks up and drops into the net if you just block it, so swing topspin against a chop.</span>
     </div>
@@ -1765,11 +1928,11 @@ function frame(now){
   if (now >= hitstopUntil && !paused){
     const dt = rdt*SLOW*(now < slowUntil ? 0.35 : 1);
     if (mode==='guest' || mode==='spectate'){
-      G.clock += dt; G.t += dt;
+      G.clock += dt; G.t += dt; if (G.srv.state==='trick') G.srv.t = (G.srv.t||0) + dt;
       if (G.ph==='rally' || G.ph==='point' || G.ph==='over' || G.ph==='between') freeFly(dt);
       const P1 = G.pl[1];
       if (G.ph==='rally' && incomingTo(1)){ const pr = predictStrike(1); if (pr){ P1.tts = pr.t; } else P1.tts = null; } else P1.tts = null;
-      G.pl.forEach(P => { const ox = P.x, oz = P.z; P.x = lerp(P.x, P.tx, 0.25); P.z = lerp(P.z, P.tz, 0.25); P.walk += Math.hypot(P.x-ox, P.z-oz)*9; P.crouch = lerp(P.crouch, G.ph==='rally'?1:0.4, 0.1); });
+      G.pl.forEach(P => { const ox = P.x, oz = P.z; P.x = lerp(P.x, P.tx, P.emote && P.emote.k==='punch' ? 0.6 : 0.25); P.z = lerp(P.z, P.tz, 0.25); P.walk += Math.hypot(P.x-ox, P.z-oz)*9; P.crouch = lerp(P.crouch, G.ph==='rally'?1:0.4, 0.1); });
     } else if (G.ph!=='wait'){
       const was = G.over; step(dt);
       if (G.over && !was){ if (mode==='attract'){ G = newGame(FORMATS.standard, Math.random()<.5?0:1); } else setTimeout(gameOver, 1300); }
