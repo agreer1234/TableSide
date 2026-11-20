@@ -58,10 +58,16 @@ button,input{font:inherit;color:inherit}
 .meter .needle{position:absolute;top:-2px;bottom:-2px;width:5px;margin-left:-2px;background:#fff;border-radius:3px;box-shadow:0 0 8px #fff}
 .trick{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:5;border:0;border-radius:999px;padding:13px 22px;background:linear-gradient(90deg,#ff8a1d,#ffd25e);color:#2a1206;font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.05em;font-size:17px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
 .trick kbd{margin-left:6px;background:rgba(0,0,0,.15);border-color:rgba(0,0,0,.25);color:#2a1206}
-.emotes{flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(14,23,48,.92);padding:8px 10px;border-radius:999px;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:cardin .3s cubic-bezier(.2,1.4,.4,1)}
+.emotes{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);transform:translateX(-50%);display:grid;grid-template-columns:auto repeat(5,auto);gap:8px;align-items:center;width:max-content;max-width:calc(100vw - 24px);background:rgba(14,23,48,.94);padding:8px 10px;border-radius:18px;z-index:6;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:cardin .3s cubic-bezier(.2,1.4,.4,1)}
 .emotes span{font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.06em;color:var(--gold);padding:0 4px}
 .emotes button{border:0;border-radius:999px;padding:8px 13px;background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--chip-line);cursor:pointer;font-family:var(--f-display);font-weight:800;text-transform:uppercase;letter-spacing:.04em;font-size:15px}
 .emotes button kbd{margin-left:6px}
+.shotmods{position:fixed;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 16px);display:flex;gap:8px;z-index:5}
+.shotmods button{border:0;border-radius:999px;padding:11px 16px;background:rgba(14,23,48,.88);box-shadow:inset 0 0 0 1.5px var(--chip-line);font-family:var(--f-display);font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:15px;cursor:pointer}
+.shotmods button[aria-pressed="true"]{background:var(--gold);color:#2a1206;box-shadow:0 0 16px rgba(255,210,94,.6)}
+body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+button{touch-action:manipulation}
+.touch kbd,.touch .emotes kbd,.touch .trick kbd{display:none}
 .banner{position:fixed;left:50%;top:36%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;width:min(92vw,900px)}
 .banner .big{font-family:var(--f-display);font-weight:900;font-style:italic;font-size:clamp(46px,9vw,110px);letter-spacing:.01em;text-transform:uppercase;line-height:.9;color:var(--ink);text-shadow:0 6px 0 rgba(0,0,0,.25),0 10px 40px rgba(0,0,0,.55)}
 .banner .big.gold{color:var(--gold)}
@@ -95,8 +101,8 @@ button,input{font:inherit;color:inherit}
 .coach h4{margin:0 0 4px;font-family:var(--f-display);font-weight:800;font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)}
 kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--chip);color:var(--ink)}
 
-.overlay{position:fixed;inset:0;display:grid;place-items:center;padding:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:radial-gradient(ellipse at center,rgba(8,13,28,.25),rgba(8,13,28,.7));overflow:auto}
-.card{background:rgba(14,23,48,.96);border-radius:16px;padding:22px;width:min(400px,100%);display:grid;gap:12px;box-shadow:0 24px 60px rgba(0,0,0,.55);animation:cardin .35s cubic-bezier(.2,1.2,.4,1)}
+.overlay{position:fixed;inset:0;display:flex;flex-direction:column;padding:16px;-webkit-overflow-scrolling:touch;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:radial-gradient(ellipse at center,rgba(8,13,28,.25),rgba(8,13,28,.7));overflow:auto}
+.card{margin:auto;flex:none;background:rgba(14,23,48,.96);border-radius:16px;padding:22px;width:min(400px,100%);display:grid;gap:12px;box-shadow:0 24px 60px rgba(0,0,0,.55);animation:cardin .35s cubic-bezier(.2,1.2,.4,1)}
 @keyframes cardin{0%{transform:translateY(16px) scale(.97);opacity:0}100%{transform:none;opacity:1}}
 .card.wide{width:min(580px,100%)}
 .logo{font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;font-size:56px;line-height:.85;letter-spacing:-.01em;margin:0}
@@ -161,10 +167,29 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
 .tag{font-size:11px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,.08);color:var(--ink-soft);margin-left:6px}
 .empty{color:var(--ink-soft);font-size:14px;padding:6px 0}
 
+@media (max-width:560px){
+  .emotes{grid-template-columns:repeat(3,auto);justify-content:center}
+  .emotes span{grid-column:1/-1;text-align:center}
+  .emotes button{padding:10px 12px}
+}
+@media (max-height:520px){
+  .card{padding:14px 16px;gap:8px}
+  .card h2{font-size:26px}
+  .logo{font-size:36px}
+  .btn{padding:8px 12px;font-size:17px}
+  .seg button{padding:6px}
+  .stats{font-size:12.5px}.stats td{padding:2px 0 2px 10px}
+  .banner .big{font-size:clamp(34px,8vh,60px)}
+  .emotes{bottom:calc(env(safe-area-inset-bottom,0px) + 64px)}
+  .trick{bottom:calc(env(safe-area-inset-bottom,0px) + 58px)}
+  .meter{bottom:calc(env(safe-area-inset-bottom,0px) + 64px)}
+  .coach{display:none}
+  .speed{display:none}
+}
 @media (max-width:760px){
   .bug{min-width:180px}
   .bug-row .nm{font-size:17px}.bug-row .pt{font-size:26px}
-  .coach{display:none}
+  .coach{left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 112px);bottom:auto;max-width:min(320px,calc(100vw - 32px));font-size:12.5px;text-align:center}
   .speed .v{font-size:24px}
   .logo{font-size:46px}
   .rally{top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 74px)}
@@ -197,6 +222,7 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
 <div class="prompt" id="prompt" style="opacity:0"></div>
 <div class="meter" id="meter" hidden><div class="lab">Hit the green!</div><div class="bar"><div class="zone"></div><div class="needle" id="needle"></div></div></div>
 <button class="trick" id="trickBtn" hidden>Trick serve<kbd>T</kbd></button>
+<div class="shotmods" id="shotmods" hidden><button id="modLob" aria-pressed="false">Lob</button><button id="modDrop" aria-pressed="false">Drop</button></div>
 <div class="feet" id="feet" style="opacity:0"><div class="cue" id="feetCue">In position</div><div class="track"><div class="zone"></div><div class="me" id="feetMe"></div></div></div>
 <div class="speed" id="speed" style="opacity:0"><div class="k" id="speedK">Loop</div><div class="v"><span id="speedV">0</span><small>km/h</small></div></div>
 <div class="coach" id="coach" hidden>
@@ -214,6 +240,9 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
+const TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window);
+document.body.classList.toggle('touch', TOUCH);
+if (TOUCH) $('coach').innerHTML = '<h4>How to hit</h4><b>Tap as the ring closes on the ball</b> (green = perfect). Tap left or right to aim, high to drive, low to chop. Swipe to shape it. <b>Lob</b> and <b>Drop</b> buttons arm your next shot.';
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const lerp = (a,b,t) => a + (b-a)*t;
 const ease = t => t<0?0:t>1?1:t*t*(3-2*t);
@@ -374,7 +403,7 @@ function point(winner, why){
   G.longest = Math.max(G.longest, G.rally);
   G.ph = 'point'; G.t = 0;
   G.pl[winner].cheer = 1; G.pl[1-winner].slump = 1;
-  G.eo = G.rally >= 15 ? winner : -1;                                   // an insane rally earns the winner an emote
+  G.eo = G.rally >= 10 ? winner : -1;                                   // a big rally earns the winner an emote
   const [a,c] = G.sc, to = G.fmt.to;
   const gameWon = (a>=to||c>=to) && Math.abs(a-c)>=2;
   const label = {Out:'Out', Net:'Net', Fault:'Fault', Ace:'Ace!', Winner:'Winner!', Missed:'Winner!'}[why] || why;
@@ -927,6 +956,7 @@ function fireGesture(tap){
     const nx = (g.x0/innerWidth - 0.5)*2, ny = g.y0/innerHeight;
     intent = {aim: clamp(nx*1.6, -1, 1), spin: ny < 0.25 ? 0.95 : ny < 0.5 ? 0.6 : ny > 0.78 ? -0.7 : 0.25, power: ny < 0.25 ? 0.8 : ny < 0.5 ? 0.65 : 0.55};
   } else { const speed = Math.hypot(dx,dy)/ms; intent = {aim: swipeAim(dx, dy, 110), spin: clamp(-dy/70, -1, 1), power: clamp(0.3 + speed*0.42, 0.3, 1)}; }
+  if (armedMod){ intent[armedMod] = true; setMod(null); }               // the Lob / Drop button arms the next shot
   intent.t = g.clock;
   const who = mode==='local' && g.y0 < innerHeight*0.4 ? 1 : me;
   sendSwing(who, intent);
@@ -1151,14 +1181,14 @@ function makePaddle(){
 }
 function build(){
   renderer = new THREE.WebGLRenderer({canvas: cv, antialias: true});
-  renderer.setPixelRatio(Math.min(2, devicePixelRatio||1));
+  renderer.setPixelRatio(Math.min(TOUCH ? 1.5 : 2, devicePixelRatio||1));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b1226); scene.fog = new THREE.Fog(0x0b1226, 11, 26);
   camera = new THREE.PerspectiveCamera(46, 1, 0.05, 80);
   scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a1c18, 0.62));
   const key = new THREE.DirectionalLight(0xffffff, 1.0);
-  key.position.set(0.8, 7, 1.5); key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+  key.position.set(0.8, 7, 1.5); key.castShadow = true; key.shadow.mapSize.set(TOUCH ? 1024 : 2048, TOUCH ? 1024 : 2048);
   Object.assign(key.shadow.camera, {left:-3.5, right:3.5, top:4, bottom:-4, near:1, far:14}); key.shadow.bias = -0.0005; key.shadow.radius = 3;
   scene.add(key);
   for (const z of [-4, 0, 4]) { const pl = new THREE.PointLight(0xfff0d8, 0.28, 14); pl.position.set(0, 5, z); scene.add(pl); }
@@ -1482,8 +1512,9 @@ function hud(){
   $('speed').style.opacity = mode!=='attract' && performance.now()-lhAt < 1800 ? '1' : '0';
   $('rally').style.opacity = mode!=='attract' && G.ph==='rally' && G.rally >= 4 ? '1' : '0'; $('rallyN').textContent = G.rally;
   $('rally').classList.toggle('hot', intense());
-  $('emotes').hidden = !canEmote();
+  $('emotes').hidden = !canEmote() || !ov.hidden;
   $('trickBtn').hidden = !myServeHold();
+  $('shotmods').hidden = !(TOUCH && ['cpu','local','host','guest'].includes(mode) && (G.ph==='rally' || G.ph==='serve') && ov.hidden);
   const trickOn = mode!=='attract' && G.ph==='serve' && G.srv.state==='trick';
   $('meter').hidden = !trickOn; if (trickOn) $('needle').style.left = (meterPos(G.srv.t)*100) + '%';
   let pr = '';
@@ -1758,6 +1789,10 @@ function renderRecords(){
 function openRecords(){ $('records').hidden = false; renderRecords(); $('recClose').focus(); }
 function closeRecords(){ $('records').hidden = true; }
 $('recBtn').onclick = openRecords;
+let armedMod = null;
+function setMod(m){ armedMod = m; $('modLob').setAttribute('aria-pressed', String(m==='lob')); $('modDrop').setAttribute('aria-pressed', String(m==='drop')); }
+$('modLob').onclick = () => setMod(armedMod==='lob' ? null : 'lob');
+$('modDrop').onclick = () => setMod(armedMod==='drop' ? null : 'drop');
 function myServeHold(){ return G.ph==='serve' && G.srv.state==='hold' && (mode==='local' || G.sv===me) && ['cpu','local','host','guest'].includes(mode); }
 function tryTrick(){ if (!myServeHold()) return; unlockAudio(); sendSwing(mode==='local' ? G.sv : me, {t:G.clock, aim:0, spin:0, power:0.5, trick:true}); }
 $('trickBtn').onclick = tryTrick;
@@ -1791,7 +1826,9 @@ function openMenu(){
   }
   if (mode==='cpu' || mode==='local'){
     paused = true;
-    view('ingame', `<h2>Paused</h2><button class="btn primary center" id="resume">Resume</button><button class="btn center" id="restart">Restart match</button><button class="btn center" id="how2">How to play</button><button class="btn center" id="armT">Mouse swing: ${prefs.mouseArm===false ? 'off' : 'on'}</button><button class="btn center" id="feetT">Footwork: ${prefs.feet==='manual' ? 'WASD' : 'automatic'}</button><button class="btn center" id="quit">Main menu</button>`);
+    view('ingame', `<h2>Paused</h2><button class="btn primary center" id="resume">Resume</button><button class="btn center" id="restart">Restart match</button><button class="btn center" id="how2">How to play</button>${TOUCH ? '' : `<button class="btn center" id="armT">Mouse swing: ${prefs.mouseArm===false ? 'off' : 'on'}</button><button class="btn center" id="feetT">Footwork: ${prefs.feet==='manual' ? 'WASD' : 'automatic'}</button>`}<button class="btn center" id="sndT">Sound: ${soundOn() ? 'on' : 'off'}</button><button class="btn center" id="quit">Main menu</button>`);
+    $('sndT').onclick = () => { unlockAudio(); setSound(!soundOn()); $('sndT').textContent = `Sound: ${soundOn() ? 'on' : 'off'}`; };
+    if (TOUCH){ $('resume').onclick = () => { paused = false; closeMenu(); }; $('restart').onclick = () => { paused = false; startLocal(mode, names[1]); }; $('how2').onclick = () => howTo(() => openMenu()); $('quit').onclick = () => { paused = false; toTitle(); }; return; }
     $('feetT').onclick = () => { prefs.feet = prefs.feet==='manual' ? 'auto' : 'manual'; savePrefs(); $('feetT').textContent = `Footwork: ${prefs.feet==='manual' ? 'WASD' : 'automatic'}`; };
     $('armT').onclick = () => { prefs.mouseArm = prefs.mouseArm===false; savePrefs(); $('armT').textContent = `Mouse swing: ${prefs.mouseArm===false ? 'off' : 'on'}`; };
     $('resume').onclick = () => { paused = false; closeMenu(); }; $('restart').onclick = () => { paused = false; startLocal(mode, names[1]); };
@@ -1808,7 +1845,7 @@ function toTitle(){
     <p>Arcade table tennis. Your player runs to the ball. You time the swing and flick for spin, aim and power.</p>
     <button class="btn primary" id="mCpu" data-focus>Play vs CPU <small>pick your opponent</small></button>
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
-    <button class="btn" id="mLocal">Same device <small>two on one keyboard</small></button>
+    <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
