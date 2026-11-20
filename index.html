@@ -595,7 +595,7 @@ function serveHit(p, intent, d){
 }
 function toss(p){ if (G.srv.state!=='hold') return; G.srv = {state:'toss', t:0}; G.ball.vy = 2.35; G.ball.vx = G.ball.vz = 0; sfx('toss'); }
 /* trick serve: a huge toss and a pirouette, then stop a fast meter in a narrow green zone. Nail it and the serve is nearly unreturnable; miss and it's a fault. */
-const TRICK_ZONE = 0.04;
+const TRICK_ZONE = 0.05;   // the green drawn on screen is ±0.04; the extra covers display lag
 const meterPos = t => { const x = (Math.max(0, t)/0.42) % 2; return x < 1 ? x : 2 - x; };   // sweeps 0..1..0, about 0.6 s per pass
 function trickToss(p){
   if (G.srv.state!=='hold') return;
@@ -608,17 +608,35 @@ function trickServeHit(p, m){
   G.pl[p].emote = null;
   const hitAt = {x:b.x, y:Math.max(b.y, TH+0.15), z:b.z}; b.y = hitAt.y;
   let shot, ts, ss;
+  let kind = null;
   if (ok){
-    // wicked: heavy spin one way or the other, a big curve, skimming low and deep
-    // wicked: heavy spin one way or the other, a big curve, skimming low and deep, and it must land (ease the curve until it does)
-    const tsSign = Math.random() < 0.5 ? 1 : -1, ssSign = Math.random() < 0.5 ? 1 : -1;
-    for (const k of [1, 0.75, 0.5, 0.3, 0]){
-      ts = tsSign*1.35*Math.max(0.5, k); ss = ssSign*0.9*k*s;
-      const tx = clamp(rand(-0.45, 0.45) - ssSign*s*0.25*k, -0.55, 0.55), prog = rand(0.72, 0.86)*END;   // aim against the curve
-      const dx = tx - b.x, dz = dir*prog - b.z, dd = Math.hypot(dx,dz), vh = 6.4;
-      shot = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 2, prog, dir, -5, 0.5);
-      const land = predictBounce({...shot}, 2);
-      if (!land.net && !land.long && land.firstSide === p && land.side !== p && Math.abs(land.x) < W/2 - 0.03) break;
+    // two flavours, both checked to land legally before they're used:
+    //   Rocket: a blur with maximum topspin that dips it in deep;  Corkscrew: savage backspin and a huge sideways curve, kept short
+    kind = Math.random() < 0.5 ? 'Rocket' : 'Corkscrew';
+    const plans = kind==='Rocket'
+      ? [[10, 1.5, 0.1], [9.5, 1.5, 0.05], [9, 1.5, 0], [8.5, 1.45, 0], [8, 1.4, 0]]   // a legal serve tops out near here: it must bounce on your side first
+      : [[7.2, -1.5, 1.1], [6.8, -1.5, 0.95], [6.4, -1.4, 0.8], [6, -1.3, 0.6], [5.6, -1.2, 0.45]];
+    if (kind==='Rocket'){ hitAt.y = TH + 0.08; b.y = hitAt.y; }          // struck low and flat, the way real fast serves are
+    let found = false;
+    for (const [vh, t, curve] of plans){
+      for (let a=0;a<6 && !found;a++){
+        const ssSign = Math.random() < 0.5 ? 1 : -1;
+        ts = t; ss = ssSign*curve*s;
+        const tx = clamp(rand(-0.5, 0.5) - ssSign*s*0.32*curve, -0.62, 0.62);   // aim against the curve so it bends back onto the table
+        const prog = (kind==='Rocket' ? rand(0.82, 0.93) : rand(0.42, 0.62))*END;
+        const dx = tx - b.x, dz = dir*prog - b.z, dd = Math.hypot(dx, dz);
+        const cand = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 2, prog, dir, -9, 1.2);
+        if (Math.hypot(cand.vx, cand.vz) < vh*0.8) continue;                  // the solver had to slow it down: not special enough
+        const land = predictBounce({...cand}, 2);
+        if (!land.net && !land.long && land.firstSide === p && land.side !== p && Math.abs(land.x) < W/2 - 0.04){ shot = cand; found = true; }
+      }
+      if (found) break;
+    }
+    if (!found){
+      // never fault a nailed meter: fall back to a firm, safe, heavy-topspin serve
+      kind = 'Rocket'; ts = 1.2; ss = 0;
+      const dx = -b.x, dz = dir*0.75*END - b.z, dd = Math.hypot(dx, dz);
+      shot = shoot({...b, vx: dx/dd*7, vz: dz/dd*7, ts, ss}, 2, 0.75*END, dir, -9, 1.2);
     }
   } else {
     ts = 0.6; ss = 0.6*s;                                                  // botched: into the net or off the end
@@ -628,8 +646,9 @@ function trickServeHit(p, m){
   G.ph = 'rally';
   const kmh = launch(p, shot.vx, shot.vy, shot.vz, ts, ss, true);
   G.R.trick = ok;
-  G.lh = {p, k: ok ? 'Trick serve' : 'Botched trick serve', kmh, n:G.hits};
-  quality(p, ok ? 'Nailed it!' : 'Botched!', ok ? 'smash' : 'miss', hitAt);
+  G.lh = {p, k: ok ? kind + ' serve' : 'Botched trick serve', kmh, n:G.hits};
+  quality(p, ok ? (kind==='Rocket' ? 'Rocket!' : 'Corkscrew!') : 'Botched!', ok ? 'smash' : 'miss', hitAt);
+  if (ok) banner(kind==='Rocket' ? 'Rocket serve!' : 'Corkscrew serve!', kind==='Rocket' ? `${kmh} km/h of topspin` : 'Savage spin and curve', 'gold');
   startSwing(p, 'serve', hitAt);
   sfx('hit', ok ? 0.9 : 0.4, ok, ok ? 'smash' : 'drive');
   if (ok){ G.st[p].perf++; fx('perfect'); sparks(hitAt, 0xffd25e, 40, 2.2); crowdOoh(0.9); }
@@ -639,7 +658,7 @@ function swing(p, intent){
   const P = G.pl[p];
   if (G.ph==='serve' && G.sv===p){
     if (G.srv.state==='hold'){ if (intent.trick) trickToss(p); else toss(p); return; }
-    if (G.srv.state==='trick'){ trickServeHit(p, intent.m !== undefined ? clamp(+intent.m, 0, 1) : meterPos(G.srv.t)); return; }
+    if (G.srv.state==='trick'){ const lag = intent.t != null ? clamp(G.clock - intent.t, 0, 0.3) : 0; trickServeHit(p, intent.m !== undefined ? clamp(+intent.m, 0, 1) : meterPos(G.srv.t - lag)); return; }
     const b = G.ball;
     if (b.vy > 0) return;                                  // still rising: wait for the drop
     const d = (TH + 0.34 - b.y) / 1.6;                     // height error expressed as timing
@@ -1811,7 +1830,7 @@ function guestSwing(intent){
   if (net.sk && net.sk[0]===1) d = net.sk[1] + (performance.now() - net.lastPkt)/1000*SLOW;
   else { const pr = G.ph==='rally' && incomingTo(1) ? predictStrike(1) : null; d = pr ? -pr.t : -1; }
   net.swingN++;
-  net.pendingSwing = {n:net.swingN, d:r3(d), aim:r3(intent.aim), spin:r3(intent.spin), power:r3(intent.power), trick: intent.trick ? 1 : 0, m: G.srv.state==='trick' ? r3(meterPos(G.srv.t)) : undefined};
+  net.pendingSwing = {n:net.swingN, d:r3(d), aim:r3(intent.aim), spin:r3(intent.spin), power:r3(intent.power), trick: intent.trick ? 1 : 0, m: G.srv.state==='trick' ? r3(meterPos(G.srv.t - (intent.t != null ? clamp(G.clock - intent.t, 0, 0.3) : 0))) : undefined};
   const P = G.pl[1]; P.localSwingAt = performance.now();
   if (G.ph!=='serve'){ P.swing = {kind: intent.spin < -0.3 ? 'chop' : 'drive', t0:G.clock, bh:P.bh, hit:null}; sfx('whoosh'); }
   net.push(); coachShots++;
@@ -2018,7 +2037,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
-    <p class="note" style="text-align:center">Version 23</p>
+    <p class="note" style="text-align:center">Version 24</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
