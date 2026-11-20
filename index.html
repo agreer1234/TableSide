@@ -237,6 +237,7 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script>
 (() => {
 'use strict';
@@ -1621,39 +1622,88 @@ function pack(){
     srv:G.srv.state, srvT:r3(G.srv.t||0), ev:G.ev, qp:G.qp, lh:G.lh, h:G.hits, lg:G.longest, ra:G.rally, ov:G.over, mid:G.mid, sa:G.sa,
     st:G.st, ro:G.R.opp||0, sk: G.sk && !G.sk.done ? [G.sk.p, r3(G.clock - G.sk.t)] : null, bn: G.bounce ? [r3(G.bounce.x), r3(G.bounce.z)] : null };
 }
-/* direct browser-to-browser link (WebRTC via PeerJS). PeerJS's public broker only introduces the two players. */
+/* Two links run side by side. A direct browser-to-browser link (WebRTC via PeerJS) is fastest, but some networks
+   (mobile data, many home routers) can't open one, and iPhones drop it when the game leaves the screen. So every
+   message can also travel through public relay servers (MQTT over secure web sockets), which work on any network.
+   Each side uses the direct link while it's healthy and the relay otherwise. */
 const PEER_PREFIX = 'tableside-v1-';
-const ICE = [
-  {urls:'stun:stun.l.google.com:19302'}, {urls:'stun:global.stun.twilio.com:3478'},
-  {urls:'turn:openrelay.metered.ca:80', username:'openrelayproject', credential:'openrelayproject'},
-  {urls:'turn:openrelay.metered.ca:443', username:'openrelayproject', credential:'openrelayproject'},
-  {urls:'turn:openrelay.metered.ca:443?transport=tcp', username:'openrelayproject', credential:'openrelayproject'},
+const ICE = [{urls:'stun:stun.l.google.com:19302'}, {urls:'stun:global.stun.twilio.com:3478'}];
+const RELAYS = [
+  {url:'wss://public.cloud.shiftr.io', username:'public', password:'public'},
+  {url:'wss://broker.hivemq.com:8884/mqtt'},
+  {url:'wss://broker.emqx.io:8084/mqtt'},
 ];
+const QUIET = 5000, GONE = 45000;   // silence before showing "Reconnecting…", and before giving up on them
 const peerOpts = () => Object.assign({debug:0, config:{iceServers:ICE}}, window.TABLESIDE_PEER || {});
-function makeChannel(){
-  return { peer:null, conns:new Map(), mine:{}, remote:new Map(), seen:new Map(), myId:null, lastSend:0, onHostGone:null,
-    send(force){ const now = performance.now(); if (!force && now - this.lastSend < 30) return; this.lastSend = now; for (const c of this.conns.values()) if (c.open){ try { c.send(this.mine); } catch(e){} } },
+const relayId = () => Math.random().toString(36).slice(2, 10);
+function makeChannel(code, myId){
+  const ch = { peer:null, conns:new Map(), mine:{}, remote:new Map(), seen:new Map(), direct:new Map(), seq:new Map(), myId, code,
+    topic:'tableside-v1/' + code, relays:[], q:0, lastSend:0, lastRelay:0, onHostGone:null, onHear:null, quiet:false,
+    directOk(id){ const c = this.conns.get(id); return !!(c && c.open && performance.now() - (this.direct.get(id) || 0) < 1500); },
+    hear(id, d){
+      if (d.bye){ this.remote.delete(id); this.seen.delete(id); if (net.role==='guest' && id===PEER_PREFIX+this.code && this.onHostGone) this.onHostGone(); return; }
+      this.remote.set(id, d); this.seen.set(id, performance.now()); if (this.onHear) this.onHear(id);
+    },
+    send(force){
+      const now = performance.now(); if (!force && now - this.lastSend < 30) return; this.lastSend = now;
+      let relayNeeded = this.remote.size === 0;
+      for (const id of this.remote.keys()) if (!this.directOk(id)) relayNeeded = true;
+      for (const c of this.conns.values()) if (c.open){ try { c.send(this.mine); } catch(e){} }
+      // relay: full rate when someone needs it, a slow heartbeat otherwise (so either link can take over instantly)
+      const gap = this.remote.size === 0 ? 1000 : relayNeeded ? 50 : 400;
+      if (now - this.lastRelay >= gap) this.relaySend({f:this.myId, q:++this.q, d:this.mine});
+    },
     presence(p){ this.mine = p; this.send(net.role !== 'host'); return Promise.resolve(); },
+    relaySend(m){ this.lastRelay = performance.now(); const txt = JSON.stringify(m); for (const r of this.relays) if (r.connected){ try { r.publish(this.topic, txt, {qos:0}); } catch(e){} } },
+    startRelays(){
+      if (!window.mqtt) return;
+      for (const R of RELAYS){
+        let c; try { c = mqtt.connect(R.url, {clientId:'ts' + relayId(), username:R.username, password:R.password, clean:true, keepalive:20, connectTimeout:8000, reconnectPeriod:2000}); } catch(e){ continue; }
+        c.on('connect', () => c.subscribe(this.topic));
+        c.on('error', () => {});
+        c.on('message', (t, buf) => {
+          let m; try { m = JSON.parse(buf.toString()); } catch(e){ return; }
+          if (!m || typeof m.f !== 'string' || m.f === this.myId || !m.d || typeof m.d !== 'object') return;
+          if (typeof m.q === 'number'){ const last = this.seq.get(m.f) || 0; if (m.q <= last && m.q > last - 1000) return; this.seq.set(m.f, m.q); }   // same message from a second relay, or an old one
+          if (this.directOk(m.f)) return;   // the direct link is healthy: it carries the game
+          this.hear(m.f, m.d);
+        });
+        this.relays.push(c);
+      }
+    },
     peers(){
       const now = performance.now(), out = [{peer:this.myId||'me', sameTab:true, isMe:true, by:null, presence:this.mine}];
+      const watch = net.role==='host' ? net.other : PEER_PREFIX + this.code;
       for (const [id, pr] of this.remote){
-        if (now - (this.seen.get(id) || 0) > 8000){ this.remote.delete(id); this.conns.delete(id); if (net.role==='guest' && this.onHostGone) this.onHostGone(); continue; }   // silent for 8 s: they've gone
+        const gap = now - (this.seen.get(id) || 0);
+        if (gap > GONE){ this.remote.delete(id); this.conns.delete(id); if (net.role==='guest' && id===watch && this.onHostGone) this.onHostGone(); continue; }
         out.push({peer:id, sameTab:false, isMe:false, by:null, presence:pr});
+      }
+      if (watch && this.remote.has(watch)){
+        const quiet = now - (this.seen.get(watch) || 0) > QUIET;
+        if (quiet !== this.quiet){ this.quiet = quiet; setConn(!quiet, quiet ? 'Reconnecting…' : 'Online'); }
       }
       return out; },
     wire(c){
-      let opened = false;
-      c.on('open', () => { opened = true; this.conns.set(c.peer, c); this.send(true); if (this.onOpen) this.onOpen(); });
-      c.on('data', d => { if (d && typeof d === 'object'){ this.remote.set(c.peer, d); this.seen.set(c.peer, performance.now()); } });
-      const gone = () => { if (!opened) return; opened = false; if (this.conns.get(c.peer) === c){ this.conns.delete(c.peer); this.remote.delete(c.peer); } if (net.role==='guest' && this.onHostGone) this.onHostGone(); };
+      c.on('open', () => { this.conns.set(c.peer, c); this.send(true); });
+      c.on('data', d => { if (d && typeof d === 'object'){ this.direct.set(c.peer, performance.now()); this.hear(c.peer, d); } });
+      const gone = () => { if (this.conns.get(c.peer) === c) this.conns.delete(c.peer); };   // the relay carries on; silence decides if they've left
       c.on('close', gone); c.on('error', gone);
     },
-    leave(){ try { this.peer && this.peer.destroy(); } catch(e){} return Promise.resolve(); } };
+    leave(){
+      const bye = {f:this.myId, q:++this.q, d:{bye:1}};
+      for (const c of this.conns.values()) if (c.open){ try { c.send({bye:1}); } catch(e){} }
+      this.relaySend(bye);
+      setTimeout(() => { try { this.peer && this.peer.destroy(); } catch(e){} for (const r of this.relays){ try { r.end(true); } catch(e){} } }, 300);
+      return Promise.resolve(); } };
+  addEventListener('pagehide', () => { if (net.ch === ch) ch.leave(); });
+  return ch;
 }
-function openPeer(id){
+function openPeer(id, wait){
   return new Promise((res, rej) => {
+    if (!window.Peer){ rej({type:'browser-incompatible'}); return; }
     let pe; try { pe = id ? new Peer(id, peerOpts()) : new Peer(peerOpts()); } catch(e){ rej(e); return; }
-    const to = setTimeout(() => { try { pe.destroy(); } catch(e){} rej({type:'timeout'}); }, 12000);
+    const to = setTimeout(() => { try { pe.destroy(); } catch(e){} rej({type:'timeout'}); }, wait || 8000);
     pe.on('open', () => { clearTimeout(to); res(pe); });
     pe.on('error', e => { clearTimeout(to); rej(e); });
   });
@@ -1663,48 +1713,53 @@ setConn(false, 'Offline');
 
 function peersHere(){ return net.ch ? net.ch.peers() : []; }
 function genCode(){ if (window.TABLESIDE_CODE) return window.TABLESIDE_CODE; const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s = ''; for (let i=0;i<4;i++) s += a[Math.floor(Math.random()*a.length)]; return s; }
+function keepPeer(ch, pe){
+  // the matchmaking link drops when a phone leaves the game; rejoin it when the game is back on screen
+  pe.on('disconnected', () => { try { if (!pe.destroyed) pe.reconnect(); } catch(e){} });
+  pe.on('error', () => {});
+  const wake = () => { if (!document.hidden && net.ch === ch && ch.peer === pe && pe.disconnected && !pe.destroyed){ try { pe.reconnect(); } catch(e){} } };
+  document.addEventListener('visibilitychange', wake); addEventListener('focus', wake); addEventListener('pageshow', wake);
+}
 async function openHost(){
-  for (let i=0;i<5;i++){
-    const code = genCode();
-    try {
-      const pe = await openPeer(PEER_PREFIX + code), ch = makeChannel();
-      ch.peer = pe; ch.myId = pe.id;
-      pe.on('connection', c => ch.wire(c));
-      pe.on('disconnected', () => { try { if (!pe.destroyed) pe.reconnect(); } catch(e){} });
-      const wake = () => { if (!document.hidden && net.ch && net.ch.peer === pe && pe.disconnected && !pe.destroyed){ try { pe.reconnect(); } catch(e){} } };
-      document.addEventListener('visibilitychange', wake); window.addEventListener('focus', wake); window.addEventListener('pageshow', wake);
-      pe.on('error', () => {});
-      net.code = code; net.ch = ch; setConn(true, 'Hosting'); return true;
-    } catch(e){ if (e && e.type === 'unavailable-id') continue; netError(e); return false; }
+  if (!window.Peer && !window.mqtt){ netError({type:'network'}); return false; }
+  let code = genCode(), pe = null;
+  for (let i=0;i<5 && window.Peer;i++){
+    try { pe = await openPeer(PEER_PREFIX + code); break; }
+    catch(e){ if (e && e.type === 'unavailable-id'){ code = genCode(); continue; } break; }   // matchmaking down: the relay still works
   }
-  netError({type:'busy'}); return false;
+  if (!pe && !window.mqtt){ netError({type:'network'}); return false; }
+  const ch = makeChannel(code, PEER_PREFIX + code);
+  if (pe){ ch.peer = pe; pe.on('connection', c => ch.wire(c)); keepPeer(ch, pe); }
+  ch.startRelays();
+  net.code = code; net.ch = ch; setConn(true, 'Hosting'); return true;
 }
 async function openGuest(code){
-  try {
-    const pe = await openPeer(null), ch = makeChannel();
-    ch.peer = pe; ch.myId = pe.id; net.code = code; net.ch = ch;
-    let tries = 0, joined = false, missingAt = 0;
+  if (!window.Peer && !window.mqtt){ netError({type:'network'}); return false; }
+  let pe = null; try { pe = await openPeer(null, 6000); } catch(e){}
+  if (!pe && !window.mqtt){ netError({type:'network'}); return false; }
+  const hostId = PEER_PREFIX + code, ch = makeChannel(code, pe ? pe.id : 'tsg-' + relayId());
+  net.code = code; net.ch = ch; ch.startRelays();
+  let found = false;
+  ch.onHear = id => { if (id === hostId) found = true; };
+  ch.onHostGone = () => { if (mode==='guest' || mode==='spectate'){ leaveMatch(); net.slowNote = true; setConn(false, 'Disconnected'); view('gone', `<h2>The host left</h2><p>The match ended because the other player closed the game or stayed away too long.</p><button class="btn primary center" id="home" data-focus>Main menu</button>`); $('home').onclick = () => { leaveMatch(); toTitle(); }; } };
+  if (pe){
+    ch.peer = pe; keepPeer(ch, pe);
+    // keep trying for the faster direct link; the relay carries the game meanwhile
+    let tries = 0, busy = false;
     const knock = () => {
-      if (net.ch !== ch || joined) return; tries++; const attempt = tries;
-      const c = pe.connect(PEER_PREFIX + code, {serialization:'json', reliable:true}); ch.wire(c);
-      setTimeout(() => {
-        if (net.ch !== ch || joined || c.open || missingAt >= attempt) return;   // that attempt simply found nobody: the retry loop handles it
-        try { c.close(); } catch(e){}
-        if (tries < 12){ showLinkTrouble(); knock(); } else showLinkTrouble(true);
-      }, 12000);
+      if (net.ch !== ch || busy || tries >= 60 || document.hidden) return;
+      const c = ch.conns.get(hostId); if (c && c.open) return;
+      tries++; busy = true; let done = false;
+      const cn = pe.connect(hostId, {serialization:'json', reliable:true}); ch.wire(cn);
+      cn.on('open', () => { done = true; });
+      setTimeout(() => { busy = false; if (!done){ try { cn.close(); } catch(e){} knock(); } }, found ? 10000 : 5000);
     };
-    pe.on('error', e => {
-      if (e && e.type === 'peer-unavailable' && net.ch === ch && !joined){ missingAt = tries;
-        if (tries < 50){ if (tries === 1 || ov.dataset.view !== 'waitguest' || !net.slowNote){ net.slowNote = true; showWaitingGuest(true); } setTimeout(knock, 2500); }
-        else showWaitingGuest(true, true);
-      }
-    });
-    ch.onOpen = () => { joined = true; };
-    ch.onHostGone = () => { if (mode==='guest' || mode==='spectate'){ setConn(false, 'Disconnected'); view('gone', `<h2>The host left</h2><p>The match ended because the other player closed the game or lost connection.</p><button class="btn primary center" id="home" data-focus>Main menu</button>`); $('home').onclick = () => { leaveMatch(); toTitle(); }; } };
     knock();
-    setConn(true, 'Connecting…');
-    return true;
-  } catch(e){ netError(e); return false; }
+    const again = setInterval(() => { if (net.ch !== ch){ clearInterval(again); return; } knock(); }, 8000);   // the direct link dropped (say, a phone left the game): try to bring it back
+  }
+  setTimeout(() => { if (net.ch === ch && !found) showWaitingGuest(true, true); }, 150000);
+  setConn(true, 'Connecting…');
+  return true;
 }
 function showLinkTrouble(final){
   view('waitguest', `<h2>Found your friend's game</h2><p>${final ? "Your two connections couldn't link up. Try both on Wi-Fi, or both on mobile data, then join again." : 'Connecting… Some networks (mobile data, school or work Wi-Fi) take a few tries. Keep both games open on screen.'}</p><button class="btn ghost" id="cancel">Cancel</button>`);
@@ -1789,7 +1844,7 @@ function netTick(){
     if (pr.gp && mine && pr.gp !== mine.peer){ if (mode!=='spectate'){ mode = 'spectate'; closeMenu(); } const pl = ps.find(p => p.peer===pr.gp); if (pl){ names[1] = cleanNick(pl.presence.nick)||'Guest'; colors[1] = validColor(pl.presence.col, 1); } }
     else if (pr.gp && mine && pr.gp===mine.peer && ov.dataset.view==='waitguest') closeMenu();
     if (colors[1]===colors[0]) colors[1] = (colors[0]+1)%COLORS.length;
-    if (pr.g){ applyHost(pr.g); if ($('connTxt').textContent !== 'Online') setConn(true, 'Online'); }
+    if (pr.g){ applyHost(pr.g); if (!net.ch.quiet && $('connTxt').textContent !== 'Online') setConn(true, 'Online'); }
     recolor(); net.push();
   }
 }
@@ -1955,7 +2010,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
-    <p class="note" style="text-align:center">Version 21</p>
+    <p class="note" style="text-align:center">Version 22</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
@@ -2029,7 +2084,7 @@ function startLocal(m, n2, fmtKey){
 }
 async function onlineMenu(){
   view('online', `<h2>Play a friend <em>online</em></h2><p class="note">Checking the connection…</p>`);
-  if (!window.Peer){
+  if (!window.Peer && !window.mqtt){
     view('online', `<h2>Online play didn't load</h2><p>Check your internet connection and reload the page. You can still play the computer or a friend on this device.</p><button class="btn primary center" id="toCpu">Play vs CPU</button><button class="btn ghost" id="back">Back</button>`);
     $('toCpu').onclick = cpuSetup; $('back').onclick = toTitle; return;
   }
@@ -2108,6 +2163,7 @@ function frame(now){
 }
 if (!window.THREE){ view('err', `<h2>The 3D engine didn't load</h2><p>Reload the page to try again.</p>`); return; }
 build(); toTitle(); requestAnimationFrame(frame);
+if (window.TABLESIDE_TEST) window.__ts = {get G(){ return G; }, get mode(){ return mode; }, net};
 { const m = /^#join-([a-z0-9]{4})$/i.exec(location.hash);
   if (m){ history.replaceState(null, '', location.pathname + location.search); needProfile(() => joinMatch(m[1].toLowerCase())); } }
 })();
