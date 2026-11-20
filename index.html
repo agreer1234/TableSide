@@ -1173,7 +1173,6 @@ function makeChar(p){
   const collar = M(new THREE.TorusGeometry(0.062, 0.012, 8, 20), trim, c.torso); collar.rotation.x = Math.PI/2; collar.position.y = 0.535;
   const neck = M(new THREE.CylinderGeometry(0.048, 0.055, 0.13, 14), skin, c.torso); neck.position.y = 0.6;
   const back = M(new THREE.PlaneGeometry(0.2, 0.2), numM, c.torso); back.position.set(0, 0.33, 0.137); back.castShadow = false;
-  const hem = M(new THREE.CylinderGeometry(0.152, 0.152, 0.025, 22, 1, true), trim, c.torso); hem.scale.z = 0.68; hem.position.y = 0.012;
   c.chest = new THREE.Object3D();
   // shorts
   c.hips = new THREE.Group(); scene.add(c.hips);
