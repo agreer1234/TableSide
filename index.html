@@ -1622,16 +1622,29 @@ function pack(){
 }
 /* direct browser-to-browser link (WebRTC via PeerJS). PeerJS's public broker only introduces the two players. */
 const PEER_PREFIX = 'tableside-v1-';
-const peerOpts = () => Object.assign({debug:0}, window.TABLESIDE_PEER || {});
+const ICE = [
+  {urls:'stun:stun.l.google.com:19302'}, {urls:'stun:global.stun.twilio.com:3478'},
+  {urls:'turn:openrelay.metered.ca:80', username:'openrelayproject', credential:'openrelayproject'},
+  {urls:'turn:openrelay.metered.ca:443', username:'openrelayproject', credential:'openrelayproject'},
+  {urls:'turn:openrelay.metered.ca:443?transport=tcp', username:'openrelayproject', credential:'openrelayproject'},
+];
+const peerOpts = () => Object.assign({debug:0, config:{iceServers:ICE}}, window.TABLESIDE_PEER || {});
 function makeChannel(){
-  return { peer:null, conns:new Map(), mine:{}, remote:new Map(), myId:null, lastSend:0, onHostGone:null,
+  return { peer:null, conns:new Map(), mine:{}, remote:new Map(), seen:new Map(), myId:null, lastSend:0, onHostGone:null,
     send(force){ const now = performance.now(); if (!force && now - this.lastSend < 30) return; this.lastSend = now; for (const c of this.conns.values()) if (c.open){ try { c.send(this.mine); } catch(e){} } },
     presence(p){ this.mine = p; this.send(net.role !== 'host'); return Promise.resolve(); },
-    peers(){ const out = [{peer:this.myId||'me', sameTab:true, isMe:true, by:null, presence:this.mine}]; for (const [id, pr] of this.remote) out.push({peer:id, sameTab:false, isMe:false, by:null, presence:pr}); return out; },
+    peers(){
+      const now = performance.now(), out = [{peer:this.myId||'me', sameTab:true, isMe:true, by:null, presence:this.mine}];
+      for (const [id, pr] of this.remote){
+        if (now - (this.seen.get(id) || 0) > 8000){ this.remote.delete(id); this.conns.delete(id); if (net.role==='guest' && this.onHostGone) this.onHostGone(); continue; }   // silent for 8 s: they've gone
+        out.push({peer:id, sameTab:false, isMe:false, by:null, presence:pr});
+      }
+      return out; },
     wire(c){
-      c.on('open', () => { this.conns.set(c.peer, c); this.send(true); if (this.onOpen) this.onOpen(); });
-      c.on('data', d => { if (d && typeof d === 'object') this.remote.set(c.peer, d); });
-      const gone = () => { this.conns.delete(c.peer); this.remote.delete(c.peer); if (net.role==='guest' && this.onHostGone) this.onHostGone(); };
+      let opened = false;
+      c.on('open', () => { opened = true; this.conns.set(c.peer, c); this.send(true); if (this.onOpen) this.onOpen(); });
+      c.on('data', d => { if (d && typeof d === 'object'){ this.remote.set(c.peer, d); this.seen.set(c.peer, performance.now()); } });
+      const gone = () => { if (!opened) return; opened = false; if (this.conns.get(c.peer) === c){ this.conns.delete(c.peer); this.remote.delete(c.peer); } if (net.role==='guest' && this.onHostGone) this.onHostGone(); };
       c.on('close', gone); c.on('error', gone);
     },
     leave(){ try { this.peer && this.peer.destroy(); } catch(e){} return Promise.resolve(); } };
@@ -1669,10 +1682,18 @@ async function openGuest(code){
   try {
     const pe = await openPeer(null), ch = makeChannel();
     ch.peer = pe; ch.myId = pe.id; net.code = code; net.ch = ch;
-    let tries = 0, joined = false;
-    const knock = () => { if (net.ch !== ch || joined) return; tries++; ch.wire(pe.connect(PEER_PREFIX + code, {serialization:'json', reliable:true})); };
+    let tries = 0, joined = false, missingAt = 0;
+    const knock = () => {
+      if (net.ch !== ch || joined) return; tries++; const attempt = tries;
+      const c = pe.connect(PEER_PREFIX + code, {serialization:'json', reliable:true}); ch.wire(c);
+      setTimeout(() => {
+        if (net.ch !== ch || joined || c.open || missingAt >= attempt) return;   // that attempt simply found nobody: the retry loop handles it
+        try { c.close(); } catch(e){}
+        if (tries < 12){ showLinkTrouble(); knock(); } else showLinkTrouble(true);
+      }, 12000);
+    };
     pe.on('error', e => {
-      if (e && e.type === 'peer-unavailable' && net.ch === ch && !joined){
+      if (e && e.type === 'peer-unavailable' && net.ch === ch && !joined){ missingAt = tries;
         if (tries < 50){ if (tries === 1 || ov.dataset.view !== 'waitguest' || !net.slowNote){ net.slowNote = true; showWaitingGuest(true); } setTimeout(knock, 2500); }
         else showWaitingGuest(true, true);
       }
@@ -1683,6 +1704,10 @@ async function openGuest(code){
     setConn(true, 'Connecting…');
     return true;
   } catch(e){ netError(e); return false; }
+}
+function showLinkTrouble(final){
+  view('waitguest', `<h2>Found your friend's game</h2><p>${final ? "Your two connections couldn't link up. Try both on Wi-Fi, or both on mobile data, then join again." : 'Connecting… Some networks (mobile data, school or work Wi-Fi) take a few tries. Keep both games open on screen.'}</p><button class="btn ghost" id="cancel">Cancel</button>`);
+  $('cancel').onclick = () => { leaveMatch(); toTitle(); };
 }
 function netError(e){
   const t = e && e.type;
@@ -1929,7 +1954,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
-    <p class="note" style="text-align:center">Version 19</p>
+    <p class="note" style="text-align:center">Version 20</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
