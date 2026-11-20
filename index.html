@@ -1163,7 +1163,7 @@ function makeChar(p){
   const look = LOOKS[p];
   const shirt = mat(COLORS[colors[p]].c, {roughness:0.62});
   const skin = mat(look.skin, {roughness:0.72});
-  const shortsM = mat(0x1b2033, {roughness:0.7}), trim = mat(0xffffff, {roughness:0.6});
+  const shortsM = mat(0x1b2033, {roughness:0.7, side:THREE.DoubleSide}), trim = mat(0xffffff, {roughness:0.6});
   const sole = mat(0xf4f4f4, {roughness:0.5}), upper = mat(0x24283a, {roughness:0.45});
   const hairM = mat(look.hair, {roughness:0.85}), dark = new THREE.MeshBasicMaterial({color:0x141414}), white = new THREE.MeshBasicMaterial({color:0xfafafa});
   const browM = new THREE.MeshBasicMaterial({color:look.brow}), lipM = new THREE.MeshBasicMaterial({color:0x8a4a3a});
@@ -1179,7 +1179,7 @@ function makeChar(p){
   c.chest = new THREE.Object3D();
   // shorts
   c.hips = new THREE.Group(); scene.add(c.hips);
-  const sht = M(latheGeo([[0.15,0.045],[0.158,0.04],[0.168,-0.04],[0.172,-0.15]]), shortsM, c.hips); sht.scale.z = 0.74;
+  const sht = M(latheGeo([[0.002,0.07],[0.1,0.064],[0.15,0.048],[0.158,0.04],[0.168,-0.04],[0.172,-0.13],[0.163,-0.175],[0.135,-0.205],[0.09,-0.222],[0.04,-0.229],[0.002,-0.231]], 28), shortsM, c.hips); sht.scale.z = 0.74;
   const band = M(new THREE.TorusGeometry(0.162, 0.011, 8, 28), trim, c.hips); band.rotation.x = Math.PI/2; band.scale.set(1, 0.74, 1); band.position.y = 0.035;
   // head: a group so the face turns as one
   c.head = new THREE.Group(); scene.add(c.head);
@@ -1342,7 +1342,7 @@ function handPos(p, out){
   if (P.emote && P.emote.k==='blast'){
     const et = G.clock - P.emote.t0, sh = tmpV.set(P.x + sideSign(p)*0.18, 1.38, P.z);
     const dir = hB.set(Vp.x - sh.x, 1.3 - sh.y, Vp.z - sh.z).normalize();
-    const raise = ease(clamp((et - 0.15)/0.35, 0, 1)), kick = et > 0.75 && et < 0.95 ? Math.sin((et-0.75)/0.2*Math.PI)*0.12 : 0;
+    const raise = ease(clamp((et - 0.15)/0.35, 0, 1)) * (1 - ease(clamp((et - 1.7)/0.4, 0, 1))), kick = et > 0.75 && et < 0.95 ? Math.sin((et-0.75)/0.2*Math.PI)*0.12 : 0;
     out.copy(sh).addScaledVector(dir, 0.55*raise - kick); out.y += (1 - raise)*-0.4 + kick*0.6; return out;
   }
   if (P.emote && P.emote.k==='pump' && G.clock - P.emote.t0 < 1.6){ const et = G.clock - P.emote.t0; return L2W(P, p, [0.25, 1.55 + Math.abs(Math.sin(et*9))*0.3, 0.12], out); }
@@ -1438,7 +1438,7 @@ function poseChar(p){
     C.shoe[i].position.set(foot.x, 0.045 + lift, foot.z - s*0.03); C.shoe[i].rotation.set(0, face + spinE, 0);
   }
   const pad = paddles[p], sw = P.swing;
-  const blasting = P.emote && P.emote.k==='blast' && G.clock - P.emote.t0 < 2.6;
+  const blasting = !!(G.ph==='point' && P.emote && P.emote.k==='blast' && G.clock - P.emote.t0 < 1.95);   // a strict boolean: three.js only hides on visible === false
   pad.visible = !blasting; C.blaster.visible = blasting;
   if (blasting){ const Vb = G.pl[1-p]; C.blaster.position.copy(hand); C.blaster.lookAt(Vb.x, 1.3, Vb.z); }
   pad.position.copy(hand);
@@ -1533,8 +1533,16 @@ function render(rdt){
     // cut to a side-on view so the whole slapstick plays out in frame
     const mx = (G.pl[0].x + G.pl[1].x)/2, mz = (G.pl[0].z + G.pl[1].z)/2, side = (bigEm.emote.x0 >= 0 ? 1 : -1);
     camCut = lerp(camCut, 1, Math.min(1, rdt*4));
-    camera.position.set(lerp(camera.position.x, side*4.2 + sx, camCut*0.2), lerp(camera.position.y, 2.1 + sy, camCut*0.2), lerp(camera.position.z, mz*0.6, camCut*0.2));
-    camera.lookAt(mx*0.5, 1.0, mz);
+    if (bigEm.emote.k==='blast'){
+      // straight down the table from just behind the shooter, so the shot flies away from you at the target
+      const V = G.pl.find(P => P !== bigEm), zs = Math.sign(bigEm.z) || 1;
+      const arm = sideSign(G.pl.indexOf(bigEm));   // over the shoulder of the blaster arm
+      camera.position.set(lerp(camera.position.x, bigEm.x + arm*0.75 + sx, camCut*0.2), lerp(camera.position.y, 2.0 + sy, camCut*0.2), lerp(camera.position.z, bigEm.z + zs*2.0, camCut*0.2));
+      camera.lookAt(lerp(bigEm.x, V.x, 0.6), 1.05, V.z);
+    } else {
+      camera.position.set(lerp(camera.position.x, side*4.2 + sx, camCut*0.2), lerp(camera.position.y, 2.1 + sy, camCut*0.2), lerp(camera.position.z, mz*0.6, camCut*0.2));
+      camera.lookAt(mx*0.5, 1.0, mz);
+    }
   } else {
     camCut = 0;
     const intro = (G.ph==='intro' || G.ph==='wait') && G.gameNo===1 ? ease(1 - Math.min(1, G.t/1.25)) : 0;
@@ -2010,7 +2018,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
-    <p class="note" style="text-align:center">Version 22</p>
+    <p class="note" style="text-align:center">Version 23</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
