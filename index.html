@@ -48,6 +48,13 @@ button,input{font:inherit;color:inherit}
 .hbtn:hover{background:var(--chip)}
 .rally{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 14px);transform:translateX(-50%);font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.06em;font-size:18px;background:rgba(14,23,48,.85);padding:4px 14px;border-radius:999px;pointer-events:none;transition:opacity .25s}
 .rally b{color:var(--gold);font-size:24px;margin-left:6px}
+.rally.hot{background:linear-gradient(90deg,#b8261f,#ff8a1d);box-shadow:0 0 24px rgba(255,90,40,.7);animation:throb .55s ease-in-out infinite alternate}
+.rally.hot b{color:#fff}
+@keyframes throb{from{transform:translateX(-50%) scale(1)}to{transform:translateX(-50%) scale(1.08)}}
+.emotes{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:rgba(14,23,48,.92);padding:8px 10px;border-radius:999px;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:cardin .3s cubic-bezier(.2,1.4,.4,1)}
+.emotes span{font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.06em;color:var(--gold);padding:0 4px}
+.emotes button{border:0;border-radius:999px;padding:8px 13px;background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--chip-line);cursor:pointer;font-family:var(--f-display);font-weight:800;text-transform:uppercase;letter-spacing:.04em;font-size:15px}
+.emotes button kbd{margin-left:6px}
 .banner{position:fixed;left:50%;top:36%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;width:min(92vw,900px)}
 .banner .big{font-family:var(--f-display);font-weight:900;font-style:italic;font-size:clamp(46px,9vw,110px);letter-spacing:.01em;text-transform:uppercase;line-height:.9;color:var(--ink);text-shadow:0 6px 0 rgba(0,0,0,.25),0 10px 40px rgba(0,0,0,.55)}
 .banner .big.gold{color:var(--gold)}
@@ -177,6 +184,7 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
   </div>
 </div>
 <div class="rally" id="rally" style="opacity:0">Rally<b id="rallyN">0</b></div>
+<div class="emotes" id="emotes" hidden><span>Celebrate</span><button data-em="pump">Fist pump<kbd>1</kbd></button><button data-em="spin">Spin<kbd>2</kbd></button><button data-em="bow">Bow<kbd>3</kbd></button></div>
 <div class="banner" id="banner"></div>
 <div class="pops" id="pops"></div>
 <div class="prompt" id="prompt" style="opacity:0"></div>
@@ -206,18 +214,20 @@ const rand = (a,b) => a + Math.random()*(b-a);
 /* ============ ball physics (metres, seconds) ============ */
 const L = 2.74, W = 1.525, TH = 0.76, NETH = 0.1525, BR = 0.02, END = L/2;
 const GRAV = 9.81, KD = 0.11, KM = 0.85, DT = 1/240;
-const SLOW = 0.62;                 // game clock vs real clock
+const SLOW = 0.7;                  // game clock vs real clock
 const WIN = 0.14;                  // swing timing window each side, game seconds
 const sideSign = p => p===0 ? 1 : -1;
 const dirOf = p => p===0 ? -1 : 1;
-const strikeZ = p => sideSign(p)*(END + 0.3);
+const PUSHBACK = 20;               // from this many shots, both players are driven off the table
+const intense = () => G.ph==='rally' && G.rally >= PUSHBACK;
+const strikeZ = p => sideSign(p)*(END + 0.3 + (intense() ? 0.5 : 0));
 
 function newBall(){ return {x:0,y:1,z:0,vx:0,vy:0,vz:0,ts:0,ss:0,rot:0}; }
 function integrate(b, dt){
   const pz = b.z, py = b.y;
-  const vh = Math.hypot(b.vx,b.vz)||1e-6, sp = Math.hypot(b.vx,b.vy,b.vz);
+  const vh = Math.hypot(b.vx,b.vz)||1e-6, sp = Math.hypot(b.vx,b.vy,b.vz), tsA = clamp(b.ts, -1.5, 1.5);
   b.vx += (-KD*sp*b.vx + KM*b.ss*b.vz)*dt;
-  b.vy += (-GRAV - KD*sp*b.vy - KM*b.ts*vh)*dt;
+  b.vy += (-GRAV - KD*sp*b.vy - KM*tsA*vh)*dt;
   b.vz += (-KD*sp*b.vz - KM*b.ss*b.vx)*dt;
   b.x += b.vx*dt; b.y += b.vy*dt; b.z += b.vz*dt;
   b.rot += (Math.abs(b.ts)*60 + 8)*dt;
@@ -235,7 +245,7 @@ function integrate(b, dt){
     b.y = TH+BR; b.vy = -b.vy*(0.88 - Math.max(0,-b.ts)*0.06);      // backspin sits up a touch lower
     // friction at the contact patch: the ball's surface speed pulls its travel speed toward rolling
     const h = Math.hypot(b.vx,b.vz)||1e-6, ux = b.vx/h, uz = b.vz/h;
-    const vt = h*0.9 + b.ts*1.7;                                      // topspin kicks on, backspin checks up
+    const vt = Math.max(0.3, h*0.9 + b.ts*1.7);                       // topspin kicks on, backspin checks up (huge backspin nearly stops it dead)
     const side = b.ss*0.55;                                           // sidespin kicks sideways off the bounce
     b.vx = ux*vt + uz*side; b.vz = uz*vt - ux*side;
     b.ts = b.ts*0.62 + Math.min(0.25, vt/40);                          // the table grips the ball into a little topspin
@@ -301,9 +311,9 @@ function shoot(b0, n, target, dir, lo, hi){
 /* ============ match state ============ */
 const COLORS = [{n:'Red',c:0xe2353d,css:'#e2353d'},{n:'Blue',c:0x2f6fe0,css:'#2f6fe0'},{n:'Teal',c:0x14b3a0,css:'#14b3a0'},{n:'Gold',c:0xf2b11c,css:'#f2b11c'},{n:'Violet',c:0x8a4fe0,css:'#8a4fe0'},{n:'Pink',c:0xf0559c,css:'#f0559c'}];
 const DIFF = {
-  rookie:   {label:'Rookie',   perfect:.2,  good:.38, ok:.32, aimMax:.55, pMin:.3,  pMax:.6,  smash:.3, speed:2.55},
-  pro:      {label:'Pro',      perfect:.4,  good:.4,  ok:.17, aimMax:.8,  pMin:.45, pMax:.85, smash:.65, speed:2.95},
-  champion: {label:'Champion', perfect:.62, good:.3,  ok:.08, aimMax:.95, pMin:.6,  pMax:1,   smash:.9, speed:3.35},
+  rookie:   {label:'Rookie',   perfect:.2,  good:.38, ok:.32, aimMax:.55, pMin:.3,  pMax:.6,  smash:.3, speed:2.55, smashRet:.04},
+  pro:      {label:'Pro',      perfect:.4,  good:.4,  ok:.17, aimMax:.8,  pMin:.45, pMax:.85, smash:.65, speed:2.95, smashRet:.09},
+  champion: {label:'Champion', perfect:.62, good:.3,  ok:.08, aimMax:.95, pMin:.6,  pMax:1,   smash:.9, speed:3.35, smashRet:.16},
 };
 const FORMATS = { quick:{to:7, bestOf:1, label:'Quick', sub:'game to 7'}, standard:{to:11, bestOf:1, label:'Standard', sub:'game to 11'}, match:{to:11, bestOf:3, label:'Match', sub:'best of 3'} };
 const newStat = () => ({pts:0, win:0, ace:0, err:0, miss:0, perf:0, smash:0, fast:0, shots:0, top:0, back:0});
@@ -328,7 +338,7 @@ function serverFor(sc, first){ const n = sc[0]+sc[1], deuce = G.fmt.to-1; if (sc
 function serveSpot(p){ const s = sideSign(p); return {x: s*0.18, z: s*(END+0.42)}; }
 function tossHand(p){ const P = G.pl[p], s = sideSign(p); return {x: P.x - s*0.22, y: TH+0.22, z: P.z - s*0.28}; }
 function placeForServe(){
-  G.ph = 'serve'; G.t = 0; G.rally = 0; G.sk = null; G.intent = [null,null];
+  G.ph = 'serve'; G.t = 0; G.rally = 0; G.sk = null; G.intent = [null,null]; G.chop = 0; G.eo = -1; G.pl.forEach(P => { P.emote = null; });
   G.R = {hitter:-1, serve:false, own:false, opp:0, net:false, done:true};
   G.srv = {state:'hold', t:0};
   const sp = serveSpot(G.sv), P = G.pl[G.sv]; P.x = P.tx = sp.x; P.z = P.tz = sp.z; P.swing = null;
@@ -339,6 +349,7 @@ function launch(p, vx, vy, vz, ts, ss, serve){
   const b = G.ball; b.vx=vx; b.vy=vy; b.vz=vz; b.ts=ts; b.ss=ss;
   G.R = {hitter:p, serve, own:false, opp:0, net:false, done:false};
   G.hits++; G.rally++; G.t = 0; G.sk = null; G.lastLaunch = G.clock; G.intent[1-p] = null;
+  if (G.rally === PUSHBACK){ banner('Pushed back!', `${PUSHBACK}-shot rally · it gets harder`, 'gold'); crowd(1); }
   const kmh = Math.round(Math.hypot(vx,vy,vz)*3.6);
   const s = G.st[p]; s.shots++; s.fast = Math.max(s.fast, kmh); if (ts>0.3) s.top++; else if (ts<-0.25) s.back++;
   return kmh;
@@ -353,6 +364,7 @@ function point(winner, why){
   G.longest = Math.max(G.longest, G.rally);
   G.ph = 'point'; G.t = 0;
   G.pl[winner].cheer = 1; G.pl[1-winner].slump = 1;
+  G.eo = G.rally >= 15 ? winner : -1;                                   // an insane rally earns the winner an emote
   const [a,c] = G.sc, to = G.fmt.to;
   const gameWon = (a>=to||c>=to) && Math.abs(a-c)>=2;
   const label = {Out:'Out', Net:'Net', Fault:'Fault', Ace:'Ace!', Winner:'Winner!', Missed:'Winner!'}[why] || why;
@@ -405,7 +417,8 @@ function strikeReady(b, p, pz){
   const zs = strikeZ(p);
   const crossed = (pz - zs)*(b.z - zs) <= 0;
   const dropping = b.vy < 0 && b.y - TH < 0.16 && Math.abs(b.z) > 0.35 && Math.abs(b.z) < Math.abs(zs);
-  return (crossed || dropping) && b.y > 0.5;
+  const sittingUp = b.vy < 0 && b.y > TH + 0.36 && b.y < TH + 1.05 && Math.abs(b.z) > 0.55;   // a high ball: take it at the top and smash
+  return (crossed || dropping || sittingUp) && b.y > 0.5;
 }
 function predictStrike(p){
   const b = {...G.ball}; let bounced = G.R.opp >= 1, t = 0;
@@ -435,19 +448,24 @@ function strikeHit(p, intent, d){
   const aim = clamp(clamp(intent.aim, -1, 1) + timingAim + rand(-1, 1)*scatter, -1.15, 1.15);
   // which shot this is
   let type;
-  if (b.y > TH + 0.38 && power > 0.5 && spin > -0.2 && !intent.lob && !intent.drop) type = 'smash';
+  if (b.y > TH + 0.34 && power > 0.5 && spin > -0.2 && !intent.lob && !intent.drop) type = 'smash';
   else if (intent.lob || (spin > 0.25 && power < 0.36)) type = 'lob';
   else if (intent.drop || (spin < -0.15 && power < 0.33)) type = 'drop';
   else if (spin < -0.3) type = 'chop';
   else type = 'drive';
   const heavy = q===1 && Math.abs(spin) > 0.7 && power > 0.55 && (type==='drive' || type==='chop');
   let vh, ts, f, lo = -3.5, hi = 6;
-  if (type==='smash'){ vh = 12.5 + 3.5*q + power*1.5; ts = 0.45; f = rand(0.55, 0.88); }
-  else if (type==='lob'){ vh = 4.4 + power*1.6; ts = 0.3 + Math.max(0, spin)*0.25; f = rand(0.72, 0.9); lo = 2.4; hi = 8; }
+  if (type==='smash'){ vh = 14 + 4*q + power*1.5; ts = 0.5; f = rand(0.6, 0.9); }
+  else if (type==='lob'){ vh = 4.4 + power*1.6; ts = 0.3 + Math.max(0, spin)*0.25; f = q===1 ? rand(0.8, 0.92) : rand(0.28, 0.45); lo = q===1 ? 2.4 : 3.4; hi = 8; }   // a mistimed lob lands short and sits up
   else if (type==='drop'){ vh = 2.7 + power*1.4; ts = -0.45 + Math.min(0, spin)*0.3; f = rand(0.16, 0.3); lo = -2; hi = 4; }
   else if (type==='chop'){ vh = 4.6 + power*2.2 + q*0.6 + 0.08*inSpeed; ts = spin*(0.6 + 0.4*power); f = rand(0.5, 0.72) + power*0.12; }
   else { vh = 5.2 + power*6.6 + q*1.1 + 0.15*inSpeed; ts = spin*(0.45 + 0.55*power); f = rand(0.5, 0.72) + power*0.2; }
   if (heavy) ts *= 1.4;                                                  // a perfectly timed full brush loads the ball with spin
+  // chop war: every chop in an unbroken run piles more backspin on top
+  if (type==='chop'){ G.chop = (G.chop||0) + 1; ts *= Math.min(3, 1 + 0.3*(G.chop - 1));
+    if (G.chop === 4) banner('Spin war!', 'The backspin keeps building', 'gold'); else if (G.chop === 7) banner('Unplayable spin!', 'Lift it or lose it', 'red'); }
+  else G.chop = 0;
+  if (intense()) vh *= 1.08;                                             // pushed back: everything is faster
   if (type==='drive' || type==='chop' || type==='smash') vh *= q===1 ? 1.12 : q > 0.7 ? 0.88 : 0.74;   // perfect timing is peak pace
   if (q===1 && (type==='drive' || type==='chop')) f = lerp(f, 0.6 + power*0.28, 0.75);                 // and lands the depth you swung for
   else if (q < 1) f += rand(-1, 1)*(q > 0.7 ? 0.07 : 0.13);
@@ -463,7 +481,9 @@ function strikeHit(p, intent, d){
   const pErr = (q===1 ? 0.004 : q > 0.7 ? 0.035 : 0.12 + (Math.abs(tShift) > 0.85 ? 0.12 : 0))
              + Math.pow(power, 3)*0.14*(1 - q) + (stretch ? 0.08 : 0)
              + (vsChop ? 0.06*(1 - q*0.5) : 0) + (vsLoop ? 0.05*(1 - q*0.5) : 0)
-             + (type==='smash' ? 0.02 + (q < 0.6 ? 0.1 : 0) : 0) + (type==='drop' ? 0.04 : 0) + Math.max(0, Math.abs(aim) - 0.9)*0.25;
+             + (type==='smash' ? 0.02 + (q < 0.6 ? 0.1 : 0) : 0) + (type==='drop' ? 0.04 : 0) + Math.max(0, Math.abs(aim) - 0.9)*0.25
+             + Math.max(0, -inTs - 1)*(spin > 0.6 ? 0.06 : 0.22)                  // monster backspin: only a real lift gets it over
+             + (intense() ? 0.03 + (G.rally - PUSHBACK)*0.004 : 0);
   if (Math.random() < pErr){
     const r = Math.random();
     if (vsChop || type==='drop' || (spin < -0.3 && r < 0.5) || r < 0.35) f = 0.02;                // into the net
@@ -479,6 +499,10 @@ function strikeHit(p, intent, d){
   else shot = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 1, tProg, dir, lo, hi);
   const hitAt = {x:b.x, y:b.y, z:b.z};
   const kmh = launch(p, shot.vx, shot.vy, shot.vz, ts, ss, false);
+  G.R.smash = type==='smash'; G.R.badLob = type==='lob' && q < 1;
+  if (type==='smash'){ P.jumpAt = G.clock - 0.12; }
+  sparks(hitAt, type==='smash' ? 0xffd25e : q===1 ? 0x7dffb0 : 0xffffff, type==='smash' ? 40 : q===1 ? 22 : 12, type==='smash' ? 2.4 : 1.4);
+  shake = Math.max(shake, type==='smash' ? 1 : 0.15);
   const overTable = Math.abs(hitAt.z) < END - 0.05;
   let kind = type==='smash' ? 'Smash' : type==='lob' ? 'Lob' : type==='drop' ? 'Drop shot'
     : heavy ? (ts > 0 ? 'Heavy loop' : 'Heavy chop') : ts > 0.55 ? 'Loop' : ts > 0.25 ? 'Drive' : ts < -0.4 ? 'Chop' : ts < -0.15 ? 'Push' : 'Block';
@@ -534,6 +558,8 @@ function resolveStrike(p){
   if (!sk || sk.done || !it) return;
   const d = it.d !== undefined ? it.d : it.t - sk.t;
   G.intent[p] = null;
+  if (sk.smash && Math.abs(d) > 0.022 && !it.remote){ sk.done = true; sk.whiff = true; quality(p, 'Too fast!', 'miss', G.ball); startSwing(p, 'drive', null); return; }
+  if (sk.smash && it.remote && Math.abs(d) > 0.045){ sk.done = true; sk.whiff = true; quality(p, 'Too fast!', 'miss', G.ball); return; }
   if (d < -WIN){ sk.done = true; sk.whiff = true; quality(p, 'Too early', 'miss', G.ball); return; }
   if (d > WIN + (it.remote ? 0.12 : 0)){ sk.done = true; sk.whiff = true; quality(p, 'Too late', 'miss', G.ball); startSwing(p, 'drive', null); return; }
   sk.done = true; strikeHit(p, it, clamp(d, -WIN, WIN));
@@ -550,8 +576,10 @@ function aiSwing(p){
   const b = G.ball, opp = G.pl[1-p], s = sideSign(p);
   const oppSide = clamp(opp.x * -s * 1.2, -1, 1);          // aim away from where the opponent stands
   const aim = clamp(rand(-D.aimMax, D.aimMax)*0.55 + oppSide*0.6, -D.aimMax, D.aimMax);
-  let power = rand(D.pMin, D.pMax), spin = b.ts < -0.3 ? rand(0.5, 1) : Math.random() < 0.22 ? rand(-1, -0.5) : rand(0.2, 1);
-  if (b.y > TH+0.42 && Math.random() < D.smash){ power = 1; spin = 0.6; return {d, aim, spin, power}; }
+  // against backspin: usually lift it, but sometimes chop right back (that's how chop wars start)
+  const chopBack = b.ts < -0.3 && Math.random() < (D.label==='Champion' ? 0.3 : 0.45);
+  let power = rand(D.pMin, D.pMax), spin = chopBack ? rand(-1, -0.55) : b.ts < -0.3 ? rand(0.5, 1) : Math.random() < 0.22 ? rand(-1, -0.5) : rand(0.2, 1);
+  if ((G.R.badLob && b.y > TH+0.34) || (b.y > TH+0.46 && Math.random() < D.smash)){ power = 1; spin = 0.6; return {d: G.R.badLob ? rand(-0.015, 0.015) : d, aim, spin, power}; }
   const stretched = G.sk && G.sk.stretch, oppDeep = Math.abs(opp.z) > END + 1.0;
   if (Math.random() < (stretched ? 0.35 : 0.035)) return {d, aim, spin: 0.5, power: 0.25, lob: true};      // buy time with a lob
   if (Math.random() < (oppDeep ? 0.16 : 0.035)) return {d, aim, spin: -0.5, power: 0.25, drop: true};     // catch them deep with a drop
@@ -568,12 +596,12 @@ const isRemote = p => mode==='host' && p===1;
 function step(dt){
   G.t += dt; G.clock += dt;
   const b = G.ball;
-  if (G.ph==='intro'){ updatePlayers(dt); if (G.t > 1.25) placeForServe(); return; }
+  if (G.ph==='intro'){ updatePlayers(dt); if (G.t > 0.9) placeForServe(); return; }
   if (G.ph==='serve'){
     const p = G.sv;
     if (G.srv.state==='hold'){
       Object.assign(b, tossHand(p)); b.vx=b.vy=b.vz=0;
-      if (isAI(p) && G.t > 0.75) toss(p);
+      if (isAI(p) && G.t > 0.45) toss(p);
     } else {
       b.vy -= GRAV*dt; b.y += b.vy*dt; G.srv.t += dt;
       const h = tossHand(p); b.x = h.x; b.z = h.z;
@@ -584,8 +612,9 @@ function step(dt){
   }
   if (G.ph==='point' || G.ph==='over' || G.ph==='between'){
     freeFly(dt); updatePlayers(dt);
-    if (G.ph==='point' && G.t > 1.7){ G.letReplay = false; placeForServe(); }
-    if (G.ph==='between' && G.t > 2.6) nextGame();
+    if (G.ph==='point' && G.eo >= 0 && isAI(G.eo) && !G.pl[G.eo].emote && G.t > 0.35) emote(G.eo, ['pump','spin','bow'][Math.floor(Math.random()*3)]);
+    if (G.ph==='point' && G.t > (G.eo >= 0 ? 2.3 : 1.15)){ G.letReplay = false; placeForServe(); }
+    if (G.ph==='between' && G.t > 2.0) nextGame();
     return;
   }
   // rally
@@ -599,8 +628,10 @@ function step(dt){
     if (G.R.opp===1 && !G.sk && strikeReady(b, r, pz)){
       G.sk = {p:r, t:G.clock - left, done:false, whiff:false};
       const Pr = G.pl[r], gap = Math.hypot(Pr.x - Pr.tx, (Pr.z - Pr.tz)*0.6), lenient = manualFeet(r) ? 1.25 : isAI(r) ? 1 : 1.15;
-      G.sk.stretch = gap > 0.14*lenient;
+      G.sk.stretch = gap > 0.14*lenient || G.R.smash;
+      G.sk.smash = !!G.R.smash;
       if (gap > 0.3*lenient){ G.sk.done = true; G.sk.whiff = true; quality(r, 'Too far!', 'miss', b); startSwing(r, 'drive', null); }
+      else if (isAI(r) && G.R.smash && Math.random() > diff.smashRet){ G.sk.done = true; G.sk.whiff = true; quality(r, 'Too fast!', 'miss', b); startSwing(r, 'drive', null); }
       else if (isAI(r)){ const it = aiSwing(r); G.sk.done = true; if (it.d > 0.4){ G.sk.whiff = true; startSwing(r, 'drive', null); } else strikeHit(r, it, it.d); }
       else resolveStrike(r);
     }
@@ -641,11 +672,12 @@ function updatePlayers(dt){
     } else {
       G.pred[p] = null; P.tts = null; P.strikeY = null;
       P.wind = Math.max(0, P.wind - dt*3);
-      if (G.ph==='rally' && G.R.hitter===p){ tx = lerp(P.x, 0, 0.5); tz = s*(END+0.75); }
-      else if (G.ph!=='serve'){ tx = 0; tz = s*(END+0.75); }
+      const back = intense() ? 0.5 : 0;
+      if (G.ph==='rally' && G.R.hitter===p){ tx = lerp(P.x, 0, 0.5); tz = s*(END+0.75+back); }
+      else if (G.ph!=='serve'){ tx = 0; tz = s*(END+0.75+back); }
       else { const sp = serveSpot(G.sv); if (p===G.sv){ tx = sp.x; tz = sp.z; } else { tx = 0; tz = s*(END+0.7); } }
     }
-    tz = s*clamp(tz*s, END+0.18, END+1.7);
+    tz = s*clamp(tz*s, END+0.18, END+2.3);
     P.tx = tx; P.tz = tz;
     const spd = (isAI(p) ? diff.speed : manualFeet(p) ? 3.2 : 3.9)*dt, ox = P.x, oz = P.z;
     const mv = manualFeet(p) ? moveInput(p) : null;
@@ -668,6 +700,7 @@ function updatePlayers(dt){
     P.cheer = Math.max(0, P.cheer - dt*0.8); P.slump = Math.max(0, P.slump - dt*0.8);
   }
 }
+function emote(p, kind){ const P = G.pl[p]; if (P.emote) return; P.emote = {k:kind, t0:G.clock}; if (kind==='pump') crowd(0.8); else if (kind==='spin') crowdOoh(0.6); else if (ac) applause(0.9); }
 function startSwing(p, kind, hitPos){ const P = G.pl[p]; P.swing = {kind, t0: G.clock, bh: P.bh, hit: hitPos}; if (!hitPos) sfx('whoosh'); }
 
 /* ============ input ============ */
@@ -690,6 +723,7 @@ addEventListener('keydown', e => {
     prefs.feet = 'manual'; savePrefs(); toast('Footwork on WASD · switch back in the menu');
   }
   if (k==='escape'){ if (!$('records').hidden) closeRecords(); else openMenu(); }
+  if (['1','2','3'].includes(k)) myEmote(['pump','spin','bow'][+k-1]);
   if (['arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; if (mode==='guest') net.push(); });
@@ -908,6 +942,17 @@ function crowd(level){
 }
 
 /* ============ juice ============ */
+function sparks(at, color, n, speed){
+  if (!sparkPts) return;
+  const c = new THREE.Color(color), N = sparkLife.length;
+  for (let k=0;k<n;k++){
+    const i = sparkNext; sparkNext = (sparkNext + 1) % N;
+    sparkPos[i*3] = at.x; sparkPos[i*3+1] = at.y; sparkPos[i*3+2] = at.z;
+    const th = Math.random()*Math.PI*2, ph = Math.acos(rand(-1, 1)), v = speed*rand(0.4, 1);
+    sparkVel[i*3] = Math.sin(ph)*Math.cos(th)*v; sparkVel[i*3+1] = Math.abs(Math.cos(ph))*v*0.8 + 0.4; sparkVel[i*3+2] = Math.sin(ph)*Math.sin(th)*v;
+    sparkLife[i] = rand(0.25, 0.5); sparkCol[i*3] = c.r; sparkCol[i*3+1] = c.g; sparkCol[i*3+2] = c.b;
+  }
+}
 let hitstopUntil = 0, slowUntil = 0, shake = 0, crowdJump = 0, flash = 0;
 function fx(kind){
   if (kind==='perfect'){ hitstopUntil = performance.now() + 70; shake = Math.max(shake, 0.25); flash = 0.6; }
@@ -915,7 +960,7 @@ function fx(kind){
 }
 
 /* ============ 3D scene ============ */
-let spotRing, spotDot, renderer, scene, camera, ballMesh, trail, trailGeo, bounceRing, ringCue, hitFlash, crowdMesh, crowdHeads;
+let sparkPts, sparkPos, sparkCol, sparkVel, sparkLife, sparkNext = 0, spotRing, spotDot, renderer, scene, camera, ballMesh, trail, trailGeo, bounceRing, ringCue, hitFlash, crowdMesh, crowdHeads;
 const crowdBase = [], chars = [], paddles = [];
 const tmpV = new THREE.Vector3(), UP = new THREE.Vector3(0,1,0);
 function tex(w, h, draw){ const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t; }
@@ -1028,6 +1073,9 @@ function build(){
   spotDot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 20), new THREE.MeshBasicMaterial({color:0x7dffb0, transparent:true, opacity:0, depthWrite:false})); spotDot.rotation.x = -Math.PI/2; spotDot.position.y = 0.007; scene.add(spotDot);
   bounceRing = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.032, 28), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0, depthWrite:false})); bounceRing.rotation.x = -Math.PI/2; scene.add(bounceRing);
   ringCue = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0, depthTest:false, depthWrite:false})); ringCue.renderOrder = 10; scene.add(ringCue);
+  { const N = 160; sparkPos = new Float32Array(N*3); sparkCol = new Float32Array(N*3); sparkVel = new Float32Array(N*3); sparkLife = new Float32Array(N);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3)); g.setAttribute('color', new THREE.BufferAttribute(sparkCol, 3));
+    sparkPts = new THREE.Points(g, new THREE.PointsMaterial({size:0.028, vertexColors:true, transparent:true, opacity:0.95, depthWrite:false, blending:THREE.AdditiveBlending})); sparkPts.frustumCulled = false; scene.add(sparkPts); }
   hitFlash = new THREE.Mesh(new THREE.RingGeometry(0.3, 1, 32), new THREE.MeshBasicMaterial({color:0xfff2c0, transparent:true, opacity:0, depthWrite:false})); hitFlash.renderOrder = 9; scene.add(hitFlash);
   for (let p=0;p<2;p++){ chars.push(makeChar(p)); paddles.push(makePaddle()); }
   resize();
@@ -1051,6 +1099,7 @@ const hA = new THREE.Vector3(), hB = new THREE.Vector3(), hC = new THREE.Vector3
 const padX = new THREE.Vector3(), padY = new THREE.Vector3(), padZ = new THREE.Vector3(), padM = new THREE.Matrix4();
 function handPos(p, out){
   const P = G.pl[p], set = P.bh ? POSE.bh : POSE.fh;
+  if (P.emote && P.emote.k==='pump' && G.clock - P.emote.t0 < 1.6){ const et = G.clock - P.emote.t0; return L2W(P, p, [0.25, 1.55 + Math.abs(Math.sin(et*9))*0.3, 0.12], out); }
   const sw = P.swing;
   if (armControlled(p)){
     L2W(P, p, [arm.x, arm.y, arm.z], out);
@@ -1077,21 +1126,26 @@ function handPos(p, out){
   }
   if (G.ph==='serve' && G.sv===p) return L2W(P, p, G.srv.state==='toss' ? [0.42,1.05,-0.05] : [0.36,0.92,0.1], out);
   const w = ease(P.wind);
-  const r = set.ready, b = P.strikeY && P.strikeY > TH+0.42 ? SMASH_BACK : set.back;
+  const r = set.ready, b = P.strikeY && P.strikeY > TH+0.34 ? SMASH_BACK : set.back;
   return L2W(P, p, [lerp(r[0], b[0], w), lerp(r[1], b[1], w) + yAdj*w, lerp(r[2], b[2], w)], out);
 }
 function poseChar(p){
   const P = G.pl[p], C = chars[p], s = sideSign(p), V = C.v;
   const face = p===0 ? 0 : Math.PI;
   const bob = Math.sin(P.walk)*0.02, crouch = P.crouch*0.07;
-  const hipY = 0.86 - crouch + Math.abs(bob) + P.cheer*Math.abs(Math.sin(G.clock*14))*0.12;
-  const lean = P.crouch*0.18 - P.slump*0.25;
+  const jt = P.jumpAt != null ? (G.clock - P.jumpAt)/0.5 : 2, jump = jt >= 0 && jt < 1 ? Math.sin(Math.PI*jt)*0.38 : 0;   // leaping into a smash
+  const em = P.emote, et = em ? (G.clock - em.t0) : 9;
+  const pump = em && em.k==='pump' && et < 1.6 ? Math.abs(Math.sin(et*9))*0.1 : 0;
+  const hipY = 0.86 - crouch + Math.abs(bob) + P.cheer*Math.abs(Math.sin(G.clock*14))*0.12 + jump + pump;
+  const lean = P.crouch*0.18 - P.slump*0.25 + (em && em.k==='bow' && et < 1.8 ? Math.sin(Math.min(1, et/0.5)*Math.PI/2)*0.9*(et < 1.3 ? 1 : 1 - (et-1.3)/0.5) : 0);
+  P.lift = jump;
   C.hips.position.set(P.x, hipY, P.z); C.hips.rotation.set(0, face, 0);
   const coil = (P.bh ? 0.42 : -0.22)*ease(P.wind);                        // wind-up: backhand turns the racket shoulder forward, forehand turns it back
   const swingT = P.swing ? Math.min(1,(G.clock-P.swing.t0)/0.26) : 1;
-  const twist = coil*(1 - swingT) + (P.swing ? (P.swing.bh ? -1 : 1)*Math.sin(swingT*Math.PI)*0.45 : 0);
+  const spinE = em && em.k==='spin' && et < 0.9 ? ease(et/0.9)*Math.PI*2 : 0;   // a full pirouette
+  const twist = coil*(1 - swingT) + (P.swing ? (P.swing.bh ? -1 : 1)*Math.sin(swingT*Math.PI)*0.45 : 0) + spinE;
   const sh = V[0].set(P.x, hipY + 0.48, P.z - s*lean*0.25);
-  C.torso.position.set(P.x, (hipY + 0.1 + sh.y)/2 + 0.02, (P.z + sh.z)/2); C.torso.rotation.set(-s*lean*0.5, face + twist, 0);
+  C.torso.position.set(P.x, (hipY + 0.1 + sh.y)/2 + 0.02, (P.z + sh.z)/2); C.torso.rotation.set(-s*lean*0.5, face + twist, 0); C.hips.rotation.y = face + spinE;
   C.chest.position.copy(sh); C.chest.rotation.set(0, face + twist, 0);
   const head = V[1].set(sh.x, sh.y + 0.23 - P.slump*0.06, sh.z - s*0.02);
   C.head.position.copy(head);
@@ -1116,7 +1170,7 @@ function poseChar(p){
   const elL = ik(shL, free, 0.29, 0.27, V[8].set(-s*0.6, -1, s*0.2), V[9]);
   setBone(C.uArm[1], shL, elL); setBone(C.fArm[1], elL, free); C.hand[1].position.copy(free); C.sleeves[1].position.copy(shL);
   for (let i=0;i<2;i++){
-    const side = i ? 1 : -1, ph = P.walk + (i ? Math.PI : 0), lift = Math.max(0, Math.sin(ph))*0.08;
+    const side = i ? 1 : -1, ph = P.walk + (i ? Math.PI : 0), lift = Math.max(0, Math.sin(ph))*0.08 + (P.lift||0)*0.9;
     const hip = V[10].set(P.x + side*0.1, hipY - 0.06, P.z);
     const foot = V[11].set(P.x + side*(0.16 + P.crouch*0.06), 0.06 + lift, P.z - s*Math.cos(ph)*0.08 + (i ? s*0.06 : -s*0.04));
     const knee = ik(hip, foot, 0.42, 0.42, tmpV.set(0, 0.2, -s), V[5]);
@@ -1132,7 +1186,7 @@ function poseChar(p){
   const ax = padX.crossVectors(ay, az).normalize();
   padM.makeBasis(ax, ay, az); pad.quaternion.setFromRotationMatrix(padM); pad.rotateX(closing);
 }
-let camX = 0, camLook = 0;
+let camX = 0, camLook = 0, heat = 0, nextBeat = 0;
 const dummyC = new THREE.Object3D();
 function render(rdt){
   const b = G.ball;
@@ -1146,6 +1200,19 @@ function render(rdt){
     const f = n ? Math.max(0, (i-(28-n))/n) : 0; col[i*3]=c[0]*f; col[i*3+1]=c[1]*f; col[i*3+2]=c[2]*f;
   }
   trailGeo.attributes.position.needsUpdate = true; trailGeo.attributes.color.needsUpdate = true;
+  if (sparkPts){
+    for (let i=0;i<sparkLife.length;i++){
+      if (sparkLife[i] <= 0){ sparkPos[i*3+1] = -10; continue; }
+      sparkLife[i] -= rdt; sparkVel[i*3+1] -= 6*rdt;
+      sparkPos[i*3] += sparkVel[i*3]*rdt; sparkPos[i*3+1] += sparkVel[i*3+1]*rdt; sparkPos[i*3+2] += sparkVel[i*3+2]*rdt;
+      const fade = Math.max(0, sparkLife[i]/0.5); sparkCol[i*3] *= 0.97 + fade*0.03; sparkCol[i*3+1] *= 0.97 + fade*0.03; sparkCol[i*3+2] *= 0.97 + fade*0.03;
+    }
+    sparkPts.geometry.attributes.position.needsUpdate = true; sparkPts.geometry.attributes.color.needsUpdate = true;
+  }
+  // pushed back: the arena reddens and the lights throb
+  { const want = intense() ? 1 : 0; heat = lerp(heat, want, Math.min(1, rdt*2.5));
+    scene.background.setRGB(lerp(0x0b/255, 0x2a/255, heat), lerp(0x12/255, 0x08/255, heat), lerp(0x26/255, 0x14/255, heat)); scene.fog.color.copy(scene.background);
+    if (heat > 0.02) crowdJump = Math.max(crowdJump, heat*0.8); }
   if (G.bounce){ G.bounce.t += rdt; const t = G.bounce.t; bounceRing.position.set(G.bounce.x, TH+0.003, G.bounce.z); bounceRing.scale.setScalar(1 + t*12); bounceRing.material.opacity = Math.max(0, 0.8 - t*2.4); }
   // footwork marker: the spot to stand on for the incoming ball, green when you're there
   { const Pm = G.pl[viewSide], manual = (viewSide===me && prefs.feet==='manual' && ['cpu','host','guest'].includes(mode));
@@ -1169,7 +1236,7 @@ function render(rdt){
     const k = clamp(P.tts/0.55, 0, 1);
     ringCue.position.copy(ballMesh.position); ringCue.quaternion.copy(camera.quaternion);
     ringCue.scale.setScalar(0.035 + k*0.32);
-    ringCue.material.color.setHex(P.tts < 0.03 ? 0x7dffb0 : P.strikeY > TH+0.42 ? 0xffd25e : 0xffffff);
+    ringCue.material.color.setHex(P.tts < 0.03 ? 0x7dffb0 : P.strikeY > TH+0.34 ? 0xffd25e : 0xffffff);
     ringCue.material.opacity = 0.3 + 0.65*(1-k);
   } else if (mode!=='attract' && mode!=='spectate' && G.ph==='serve' && (G.sv===viewSide || mode==='local') && G.srv.state==='toss' && G.ball.vy < 0.8){
     const k = clamp((G.ball.y - (TH+0.34))/0.22, 0, 1);
@@ -1244,6 +1311,8 @@ function hud(){
   if (G.lh && G.lh.n !== shownLh){ shownLh = G.lh.n; lhAt = performance.now(); $('speedK').textContent = `${names[G.lh.p]} · ${G.lh.k}`; $('speedV').textContent = G.lh.kmh; }
   $('speed').style.opacity = mode!=='attract' && performance.now()-lhAt < 1800 ? '1' : '0';
   $('rally').style.opacity = mode!=='attract' && G.ph==='rally' && G.rally >= 4 ? '1' : '0'; $('rallyN').textContent = G.rally;
+  $('rally').classList.toggle('hot', intense());
+  $('emotes').hidden = !canEmote();
   let pr = '';
   if (mode!=='attract' && mode!=='spectate' && G.ph==='serve'){
     const mine = mode==='local' ? G.sv : me;
@@ -1264,14 +1333,15 @@ const net = { ch:null, code:'', role:null, other:null, otherBy:null, nick:'', lo
     if (!this.ch) return;
     const p = {code:this.code, role:this.role, nick:this.nick, col:colors[this.role==='host'?0:1]};
     if (this.role==='host'){ p.gp = this.other || null; p.g = pack(); }
-    else { p.sw = this.pendingSwing; p.rm = this.rematch; p.bh = armControlled(1) ? (arm.bh ? 1 : 0) : null; p.mv = manualFeet(1) ? moveInput(1) : null; }
+    else { p.sw = this.pendingSwing; p.rm = this.rematch; p.bh = armControlled(1) ? (arm.bh ? 1 : 0) : null; p.mv = manualFeet(1) ? moveInput(1) : null; p.em = this.pendingEmote || null; }
     this.ch.presence(p).catch(()=>{});
   } };
 const r3 = v => Math.round(v*1000)/1000;
 function pack(){
   const b = G.ball;
   return { b:[b.x,b.y,b.z,b.vx,b.vy,b.vz,b.ts,b.ss].map(r3), ph:G.ph, t:r3(G.t), sv:G.sv, fi:G.first, sc:G.sc, gm:G.games, gn:G.gameNo, gs:G.gameScores, fmt:G.fmt,
-    pl: G.pl.map(P => [r3(P.x), r3(P.z), P.bh?1:0, r3(P.wind), P.swing ? [P.swing.kind, r3(G.clock - P.swing.t0), P.swing.bh?1:0, P.swing.hit ? [r3(P.swing.hit.x), r3(P.swing.hit.y), r3(P.swing.hit.z)] : null] : null, r3(P.cheer), r3(P.slump), P.strikeY ? r3(P.strikeY) : 0, r3(P.tx), r3(P.tz)]),
+    pl: G.pl.map(P => [r3(P.x), r3(P.z), P.bh?1:0, r3(P.wind), P.swing ? [P.swing.kind, r3(G.clock - P.swing.t0), P.swing.bh?1:0, P.swing.hit ? [r3(P.swing.hit.x), r3(P.swing.hit.y), r3(P.swing.hit.z)] : null] : null, r3(P.cheer), r3(P.slump), P.strikeY ? r3(P.strikeY) : 0, r3(P.tx), r3(P.tz), P.emote ? [P.emote.k, r3(G.clock - P.emote.t0)] : null, P.jumpAt != null ? r3(G.clock - P.jumpAt) : null]),
+    eo: G.eo ?? -1,
     srv:G.srv.state, ev:G.ev, qp:G.qp, lh:G.lh, h:G.hits, lg:G.longest, ra:G.rally, ov:G.over, mid:G.mid, sa:G.sa,
     st:G.st, ro:G.R.opp||0, sk: G.sk && !G.sk.done ? [G.sk.p, r3(G.clock - G.sk.t)] : null, bn: G.bounce ? [r3(G.bounce.x), r3(G.bounce.z)] : null };
 }
@@ -1396,6 +1466,7 @@ function netTick(){
           else if (it.d >= -0.6) G.intent[1] = it;   // hold it until the ball arrives here
         }
       }
+      if (pr.em && typeof pr.em.n==='number' && pr.em.n > (net.lastEmN||0)){ net.lastEmN = pr.em.n; if (G.ph==='point' && G.eo===1 && ['pump','spin','bow'].includes(pr.em.k)) emote(1, pr.em.k); }
       if (typeof pr.rm==='number' && pr.rm > net.lastRematch){ net.lastRematch = pr.rm; if (G.over) rematch(); }
     }
     net.push();
@@ -1420,10 +1491,13 @@ function applyHost(g){
   if (g.sc[0]!==G.sc[0] || g.sc[1]!==G.sc[1]) { sfx(g.ov ? 'win' : 'point'); crowd(0.8); }
   if (g.ph==='wait' && G.ph!=='wait') {}
   G.hits = g.h; G.ph = g.ph; G.t = g.t; G.sv = g.sv; G.first = g.fi; G.sc = g.sc.slice(); G.games = g.gm.slice(); G.gameNo = g.gn; G.gameScores = g.gs; G.fmt = g.fmt;
+  G.eo = g.eo ?? -1; if (G.ph!=='point') net.pendingEmote = null;
   G.srv.state = g.srv; G.ev = g.ev; G.qp = g.qp; G.lh = g.lh; G.longest = g.lg; G.rally = g.ra; G.mid = g.mid; G.sa = g.sa; G.st = g.st;
   G.R.hitter = G.ph==='rally' ? (b.vz > 0 ? 1 : 0) : -1; G.R.done = G.ph!=='rally'; G.R.opp = g.ro || 0;   // the guest needs to know the ball has already bounced on its side
   g.pl.forEach((a, i) => {
-    const P = G.pl[i]; P.tx = a[0]; P.tz = a[1]; P.ix = a[8]; P.iz = a[9]; P.bh = !!a[2]; P.wind = a[3]; P.cheer = a[5]; P.slump = a[6]; P.strikeY = a[7] || null;
+    const P = G.pl[i]; P.tx = a[0]; P.tz = a[1]; P.ix = a[8]; P.iz = a[9]; P.bh = !!a[2];
+    if (a[10]){ if (!P.emote || P.emote.k !== a[10][0]) P.emote = {k:a[10][0], t0:G.clock - a[10][1]}; } else if (!(i===1 && net.pendingEmote && G.ph==='point')) P.emote = null;
+    if (a[11] != null && a[11] < 1){ const j0 = G.clock - a[11]; if (P.jumpAt == null || Math.abs(P.jumpAt - j0) > 0.1) P.jumpAt = j0; } P.wind = a[3]; P.cheer = a[5]; P.slump = a[6]; P.strikeY = a[7] || null;
     const recentLocal = i===1 && P.localSwingAt && performance.now() - P.localSwingAt < 450;
     if (a[4] && !recentLocal){ const age = a[4][1]; if (!P.swing || Math.abs((G.clock - P.swing.t0) - age) > 0.08) P.swing = {kind:a[4][0], t0:G.clock - age, bh:!!a[4][2], hit: a[4][3] ? {x:a[4][3][0], y:a[4][3][1], z:a[4][3][2]} : null}; }
   });
@@ -1508,6 +1582,13 @@ function renderRecords(){
 function openRecords(){ $('records').hidden = false; renderRecords(); $('recClose').focus(); }
 function closeRecords(){ $('records').hidden = true; }
 $('recBtn').onclick = openRecords;
+document.querySelectorAll('#emotes button').forEach(b => b.onclick = () => myEmote(b.dataset.em));
+function canEmote(){ return G.ph==='point' && G.eo >= 0 && (mode==='local' || G.eo===me) && !G.pl[G.eo].emote && ['cpu','local','host','guest'].includes(mode); }
+function myEmote(kind){
+  if (!canEmote()) return;
+  if (mode==='guest'){ net.emN = (net.emN||0) + 1; net.pendingEmote = {n:net.emN, k:kind}; G.pl[1].emote = {k:kind, t0:G.clock}; net.push(); return; }
+  emote(G.eo, kind);
+}
 $('sndBtn').onclick = () => { unlockAudio(); setSound(!soundOn()); };
 $('menuBtn').onclick = () => openMenu();
 
@@ -1578,9 +1659,11 @@ function howTo(back){
       <b>Touch</b><span>Tap left or right of centre to aim. Tap near the top for a loop, upper middle to drive, lower middle to block, near the bottom to chop. Or swipe: the angle of your swipe aims the shot, even a slight tilt.</span>
       <b>Flick</b><span>Drag and flick instead of clicking: up for topspin, down to chop backspin, left or right to aim. A faster flick hits harder.</span>
       <b>Keys</b><span>Hold <kbd>←</kbd><kbd>→</kbd> to aim, <kbd>↑</kbd> for topspin, <kbd>↓</kbd> to chop, <kbd>Shift</kbd> for full power, <kbd>X</kbd> lob, <kbd>Z</kbd> drop shot, then press <kbd>Space</kbd>.</span>
-      <b>Smash</b><span>A gold ring means a high ball. Swing up hard (or hold <kbd>Shift</kbd>) to smash it.</span>
-      <b>Lob</b><span>Swipe up slowly, or hold <kbd>X</kbd> as you swing: a high, deep ball that buys time. Careful, it's a smash chance for them.</span>
+      <b>Smash</b><span>A gold ring means a high ball. Swing up hard (or hold <kbd>Shift</kbd>) to jump into a smash. Smashes are brutal: only a Perfect swing gets one back.</span>
+      <b>Lob</b><span>Swipe up slowly, or hold <kbd>X</kbd> as you swing: a high, deep ball that buys time. Only a Perfect lob goes deep; a mistimed one lands short and sits up to be smashed.</span>
       <b>Drop shot</b><span>Swipe down slowly, or hold <kbd>Z</kbd> as you swing: a soft ball that dies just over the net. Deadly when they're standing deep.</span>
+      <b>Long rallies</b><span>Past 20 shots both players are pushed back off the table: faster, riskier, louder. Win a rally of 15+ and you get to celebrate (buttons, or keys <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>).</span>
+      <b>Chop war</b><span>Every chop in a row piles on more backspin. Keep pushing it back and it gets nearly unplayable; lift it with real topspin to break the cycle.</span>
       <b>Heavy spin</b><span>A perfectly timed, fast, full swing up or down loads the ball with spin: a heavy loop dives and kicks, a heavy chop stops dead.</span>
       <b>Serve</b><span>Tap once to toss, then again as the ball drops into the ring. It must bounce on your side first.</span>
       <b>Spin</b><span>Topspin kicks forward off the table. Backspin checks up and drops into the net if you just block it, so swing topspin against a chop.</span>
@@ -1692,6 +1775,7 @@ function frame(now){
       if (G.over && !was){ if (mode==='attract'){ G = newGame(FORMATS.standard, Math.random()<.5?0:1); } else setTimeout(gameOver, 1300); }
     }
   }
+  if (ac && intense() && mode!=='attract' && now > nextBeat){ nextBeat = now + 520; try { const t = ac.currentTime; ping(t, 62, 0.16, 0.35, 'sine', 0.6); ping(t + 0.14, 58, 0.14, 0.22, 'sine', 0.6); } catch(e){} }
   netTick();
   render(rdt); hud();
   requestAnimationFrame(frame);
