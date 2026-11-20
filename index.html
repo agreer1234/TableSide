@@ -207,7 +207,7 @@ const rand = (a,b) => a + Math.random()*(b-a);
 const L = 2.74, W = 1.525, TH = 0.76, NETH = 0.1525, BR = 0.02, END = L/2;
 const GRAV = 9.81, KD = 0.11, KM = 0.85, DT = 1/240;
 const SLOW = 0.62;                 // game clock vs real clock
-const WIN = 0.17;                  // swing timing window each side, game seconds
+const WIN = 0.14;                  // swing timing window each side, game seconds
 const sideSign = p => p===0 ? 1 : -1;
 const dirOf = p => p===0 ? -1 : 1;
 const strikeZ = p => sideSign(p)*(END + 0.3);
@@ -419,7 +419,7 @@ function predictStrike(p){
 const incomingTo = p => G.ph==='rally' && !G.R.done && G.R.hitter===1-p;
 
 /* ============ hitting ============ */
-function grade(d){ const a = Math.abs(d); return a <= 0.035 ? {q:1, k:'Perfect!', c:'perfect'} : a <= 0.085 ? {q:0.78, k:'Good', c:'good'} : {q:0.5, k: d<0 ? 'Early' : 'Late', c:'off'}; }
+function grade(d){ const a = Math.abs(d); return a <= 0.022 ? {q:1, k:'Perfect!', c:'perfect'} : a <= 0.058 ? {q:0.72, k:'Good', c:'good'} : {q:0.45, k: d<0 ? 'Early' : 'Late', c:'off'}; }
 function strikeHit(p, intent, d){
   const b = G.ball, P = G.pl[p], s = sideSign(p), dir = dirOf(p);
   const stretch = !!(G.sk && G.sk.stretch);
@@ -431,7 +431,8 @@ function strikeHit(p, intent, d){
   // direction: what you asked for, bent by timing (early pulls cross-court, late pushes down the line; mirrored on the backhand)
   const tShift = clamp(d/WIN, -1, 1);
   const timingAim = (P.bh ? -1 : 1) * Math.sign(tShift) * Math.pow(Math.abs(tShift), 0.75) * 0.7;
-  const aim = clamp(clamp(intent.aim, -1, 1) + timingAim + rand(-0.1, 0.1)*(1.2 - q*0.7), -1.15, 1.15);
+  const scatter = q===1 ? 0.015 : q > 0.7 ? 0.16 : 0.28;              // perfect lands where you aim; good drifts; off sprays
+  const aim = clamp(clamp(intent.aim, -1, 1) + timingAim + rand(-1, 1)*scatter, -1.15, 1.15);
   // which shot this is
   let type;
   if (b.y > TH + 0.38 && power > 0.5 && spin > -0.2 && !intent.lob && !intent.drop) type = 'smash';
@@ -447,16 +448,19 @@ function strikeHit(p, intent, d){
   else if (type==='chop'){ vh = 4.6 + power*2.2 + q*0.6 + 0.08*inSpeed; ts = spin*(0.6 + 0.4*power); f = rand(0.5, 0.72) + power*0.12; }
   else { vh = 5.2 + power*6.6 + q*1.1 + 0.15*inSpeed; ts = spin*(0.45 + 0.55*power); f = rand(0.5, 0.72) + power*0.2; }
   if (heavy) ts *= 1.4;                                                  // a perfectly timed full brush loads the ball with spin
+  if (type==='drive' || type==='chop' || type==='smash') vh *= q===1 ? 1.12 : q > 0.7 ? 0.88 : 0.74;   // perfect timing is peak pace
+  if (q===1 && (type==='drive' || type==='chop')) f = lerp(f, 0.6 + power*0.28, 0.75);                 // and lands the depth you swung for
+  else if (q < 1) f += rand(-1, 1)*(q > 0.7 ? 0.07 : 0.13);
   if (type==='drive' || type==='chop') f += -tShift*0.1;                // early runs deep, late lands shorter
   // incoming spin you didn't counter
   const passive = 1 - clamp(Math.abs(spin)*1.4, 0, 1);
   if (type!=='smash' && type!=='lob'){ f += 0.18*Math.max(0, inTs)*passive; f -= 0.14*Math.max(0, -inTs)*(1 - clamp(spin*1.6, 0, 1)); }
   // a clean swing stays on the table; misses come from the roll below
   f = clamp(f, 0.12, q >= 0.78 ? 0.93 : 1.0);
-  let tx = clamp(s*aim*0.72 - b.ss*0.3*passive + rand(-0.04, 0.04), -0.72, 0.72);
+  let tx = clamp(s*aim*0.72 - b.ss*0.3*passive + (q===1 ? 0 : rand(-0.05, 0.05)), -0.72, 0.72);
   // error model: hitting hard is safe when it's timed; bad timing, stretching and misread spin are what miss
   const vsChop = inTs < -0.45 && spin < 0.15 && type!=='lob', vsLoop = inTs > 0.55 && Math.abs(spin) < 0.25 && power > 0.5;
-  const pErr = (q===1 ? 0.008 : q > 0.7 ? 0.03 : 0.12 + (Math.abs(tShift) > 0.85 ? 0.12 : 0))
+  const pErr = (q===1 ? 0.004 : q > 0.7 ? 0.035 : 0.12 + (Math.abs(tShift) > 0.85 ? 0.12 : 0))
              + Math.pow(power, 3)*0.14*(1 - q) + (stretch ? 0.08 : 0)
              + (vsChop ? 0.06*(1 - q*0.5) : 0) + (vsLoop ? 0.05*(1 - q*0.5) : 0)
              + (type==='smash' ? 0.02 + (q < 0.6 ? 0.1 : 0) : 0) + (type==='drop' ? 0.04 : 0) + Math.max(0, Math.abs(aim) - 0.9)*0.25;
@@ -495,7 +499,7 @@ function serveHit(p, intent, d){
   const vh = clamp(4.2 + power*2.1 + q*0.3, 4.1, 6.6);
   const tx = clamp(s*clamp(intent.aim,-1,1)*0.55 + rand(-0.05,0.05), -0.66, 0.66);
   let prog = clamp(0.58 + power*0.25 + rand(-0.05,0.05), 0.35, 0.92)*END;
-  if (Math.random() < (q===1 ? 0.01 : q > 0.7 ? 0.04 : 0.12) + power*power*0.05) prog = Math.random() < 0.5 ? 0.05 : 1.15*END;   // a missed serve
+  if (Math.random() < (q===1 ? 0.005 : q > 0.7 ? 0.03 : 0.08) + power*power*0.04) prog = Math.random() < 0.5 ? 0.05 : 1.15*END;   // a missed serve
   const dx = tx - b.x, dz = dir*prog - b.z, dd = Math.hypot(dx,dz);
   const shot = prog > END || prog < 0.1 ? (() => { const o = {...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}; o.vy = prog > END ? 0.3 : -4.8; return o; })() : shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 2, prog, dir, -5, 0.5);
   G.ph = 'rally';
@@ -539,9 +543,9 @@ function resolveStrike(p){
 function aiSwing(p){
   const r = Math.random(), D = diff;
   let d;
-  if (r < D.perfect) d = rand(-0.03, 0.03);
-  else if (r < D.perfect + D.good) d = (Math.random()<.5?-1:1)*rand(0.04, 0.08);
-  else if (r < D.perfect + D.good + D.ok) d = (Math.random()<.5?-1:1)*rand(0.09, 0.16);
+  if (r < D.perfect) d = rand(-0.02, 0.02);
+  else if (r < D.perfect + D.good) d = (Math.random()<.5?-1:1)*rand(0.026, 0.055);
+  else if (r < D.perfect + D.good + D.ok) d = (Math.random()<.5?-1:1)*rand(0.062, 0.13);
   else d = 0.5;                                              // whiff
   const b = G.ball, opp = G.pl[1-p], s = sideSign(p);
   const oppSide = clamp(opp.x * -s * 1.2, -1, 1);          // aim away from where the opponent stands
@@ -555,7 +559,7 @@ function aiSwing(p){
 }
 function aiServe(){
   const D = diff;
-  return {d: Math.random() < D.perfect+0.2 ? rand(-0.02,0.02) : rand(-0.09,0.09), aim: rand(-0.9,0.9), spin: [rand(-1,-0.4), rand(0.3,1), rand(-0.2,0.2)][Math.floor(Math.random()*3)], power: rand(0.2, D.pMax)};
+  return {d: Math.random() < D.perfect+0.2 ? rand(-0.018,0.018) : rand(-0.07,0.07), aim: rand(-0.9,0.9), spin: [rand(-1,-0.4), rand(0.3,1), rand(-0.2,0.2)][Math.floor(Math.random()*3)], power: rand(0.2, D.pMax)};
 }
 const isAI = p => mode==='attract' || (mode==='cpu' && p===1);
 const isRemote = p => mode==='host' && p===1;
@@ -770,7 +774,20 @@ function fireGesture(tap){
 /* ============ sound: all synthesized, no files ============ */
 let ac = null, master = null, sfxBus = null, ambBus = null;
 const soundOn = () => prefs.sound !== false;
+let silentEl = null;
+function silentWavUrl(){
+  // a quarter second of silence as a tiny WAV, played through a media element so iOS treats the page as media
+  const n = 2000, buf = new ArrayBuffer(44 + n*2), v = new DataView(buf), w = (o, str) => { for (let i=0;i<str.length;i++) v.setUint8(o+i, str.charCodeAt(i)); };
+  w(0,'RIFF'); v.setUint32(4, 36 + n*2, true); w(8,'WAVE'); w(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,8000,true); v.setUint32(28,16000,true); v.setUint16(32,2,true); v.setUint16(34,16,true); w(36,'data'); v.setUint32(40, n*2, true);
+  return URL.createObjectURL(new Blob([buf], {type:'audio/wav'}));
+}
 function unlockAudio(){
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}   // newer iOS: play even with the silent switch on
+  try {
+    if (!silentEl){ silentEl = new Audio(silentWavUrl()); silentEl.loop = true; silentEl.volume = 0.01; silentEl.setAttribute('playsinline', ''); }
+    if (silentEl.paused){ const pr = silentEl.play(); if (pr && pr.catch) pr.catch(()=>{}); }
+  } catch(e){}
   try {
     if (!ac){
       ac = new (window.AudioContext||window.webkitAudioContext)();
@@ -780,9 +797,14 @@ function unlockAudio(){
       ambBus = ac.createGain(); ambBus.gain.value = 1; ambBus.connect(comp);
       startAmbience();
     }
-    if (ac.state==='suspended') ac.resume();
+    if (ac.state !== 'running') ac.resume();
+    // play one silent sample inside the gesture: some browsers only open the audio path this way
+    const b = ac.createBuffer(1, 1, 22050), src = ac.createBufferSource(); src.buffer = b; src.connect(ac.destination); src.start(0);
   } catch(e){}
 }
+// any first touch, click or key wakes the audio, and coming back to the tab resumes it
+for (const ev of ['pointerdown', 'touchend', 'keydown', 'click']) document.addEventListener(ev, unlockAudio, {capture:true, passive:true});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state !== 'running') ac.resume().catch(()=>{}); });
 function setSound(on){ prefs.sound = on; savePrefs(); if (master) master.gain.setTargetAtTime(on ? 0.9 : 0, ac.currentTime, 0.05); $('sndBtn').textContent = on ? 'Sound on' : 'Sound off'; }
 function brownBuffer(sec){ const len = Math.floor(ac.sampleRate*sec), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0); let last = 0; for (let i=0;i<len;i++){ last = (last + (Math.random()*2-1)*0.02)/1.02; d[i] = last*3.5; } return buf; }
 function startAmbience(){
@@ -1147,7 +1169,7 @@ function render(rdt){
     const k = clamp(P.tts/0.55, 0, 1);
     ringCue.position.copy(ballMesh.position); ringCue.quaternion.copy(camera.quaternion);
     ringCue.scale.setScalar(0.035 + k*0.32);
-    ringCue.material.color.setHex(k < 0.12 ? 0x7dffb0 : P.strikeY > TH+0.42 ? 0xffd25e : 0xffffff);
+    ringCue.material.color.setHex(P.tts < 0.03 ? 0x7dffb0 : P.strikeY > TH+0.42 ? 0xffd25e : 0xffffff);
     ringCue.material.opacity = 0.3 + 0.65*(1-k);
   } else if (mode!=='attract' && mode!=='spectate' && G.ph==='serve' && (G.sv===viewSide || mode==='local') && G.srv.state==='toss' && G.ball.vy < 0.8){
     const k = clamp((G.ball.y - (TH+0.34))/0.22, 0, 1);
@@ -1549,7 +1571,7 @@ function howTo(back){
   view('how', `<h2>How to <em>play</em></h2>
     <div class="howto">
       <b>Move</b><span>Your player runs to the ball for you, forehand or backhand.</span>
-      <b>Swing</b><span>Move the mouse and your arm follows. Swing it through the ball as the ring closes (green means now). Perfect timing hits harder and lands safer. Clicking, tapping or <kbd>Space</kbd> also swing.</span>
+      <b>Swing</b><span>Move the mouse and your arm follows. Swing it through the ball as the ring closes; it flashes green only in the Perfect window. Perfect hits at peak pace and lands exactly where you aim. Good is a little slower and drifts; Early or Late is slower still and sprays. Clicking, tapping or <kbd>Space</kbd> also swing.</span>
       <b>Footwork</b><span>Your player moves to the ball automatically. Press <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move your feet yourself: A and D step across, W toward the table, S back. A ring on the floor marks the spot for the incoming ball and turns green when you're on it. Switch back in the pause menu.</span>
       <b>Forehand / backhand</b><span>Hold the mouse right of centre for a forehand, left of centre for a backhand. Your player sets up for the side you show, so pick early: switching late leaves you stretching.</span>
       <b>Early / late</b><span>Early pulls the ball cross-court and deep, late pushes it down the line and shorter. The further off, the bigger the angle, until you miss.</span>
