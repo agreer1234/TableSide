@@ -1629,7 +1629,7 @@ function makeChannel(){
     presence(p){ this.mine = p; this.send(net.role !== 'host'); return Promise.resolve(); },
     peers(){ const out = [{peer:this.myId||'me', sameTab:true, isMe:true, by:null, presence:this.mine}]; for (const [id, pr] of this.remote) out.push({peer:id, sameTab:false, isMe:false, by:null, presence:pr}); return out; },
     wire(c){
-      c.on('open', () => { this.conns.set(c.peer, c); this.send(true); });
+      c.on('open', () => { this.conns.set(c.peer, c); this.send(true); if (this.onOpen) this.onOpen(); });
       c.on('data', d => { if (d && typeof d === 'object') this.remote.set(c.peer, d); });
       const gone = () => { this.conns.delete(c.peer); this.remote.delete(c.peer); if (net.role==='guest' && this.onHostGone) this.onHostGone(); };
       c.on('close', gone); c.on('error', gone);
@@ -1648,7 +1648,7 @@ function setConn(on, text){ $('connDot').classList.toggle('on', on); $('connTxt'
 setConn(false, 'Offline');
 
 function peersHere(){ return net.ch ? net.ch.peers() : []; }
-function genCode(){ const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s = ''; for (let i=0;i<4;i++) s += a[Math.floor(Math.random()*a.length)]; return s; }
+function genCode(){ if (window.TABLESIDE_CODE) return window.TABLESIDE_CODE; const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s = ''; for (let i=0;i<4;i++) s += a[Math.floor(Math.random()*a.length)]; return s; }
 async function openHost(){
   for (let i=0;i<5;i++){
     const code = genCode();
@@ -1656,7 +1656,9 @@ async function openHost(){
       const pe = await openPeer(PEER_PREFIX + code), ch = makeChannel();
       ch.peer = pe; ch.myId = pe.id;
       pe.on('connection', c => ch.wire(c));
-      pe.on('disconnected', () => { try { pe.reconnect(); } catch(e){} });
+      pe.on('disconnected', () => { try { if (!pe.destroyed) pe.reconnect(); } catch(e){} });
+      const wake = () => { if (!document.hidden && net.ch && net.ch.peer === pe && pe.disconnected && !pe.destroyed){ try { pe.reconnect(); } catch(e){} } };
+      document.addEventListener('visibilitychange', wake); window.addEventListener('focus', wake); window.addEventListener('pageshow', wake);
       pe.on('error', () => {});
       net.code = code; net.ch = ch; setConn(true, 'Hosting'); return true;
     } catch(e){ if (e && e.type === 'unavailable-id') continue; netError(e); return false; }
@@ -1667,9 +1669,17 @@ async function openGuest(code){
   try {
     const pe = await openPeer(null), ch = makeChannel();
     ch.peer = pe; ch.myId = pe.id; net.code = code; net.ch = ch;
-    pe.on('error', e => { if (e && e.type === 'peer-unavailable'){ net.slowNote = true; showWaitingGuest(true); } });
+    let tries = 0, joined = false;
+    const knock = () => { if (net.ch !== ch || joined) return; tries++; ch.wire(pe.connect(PEER_PREFIX + code, {serialization:'json', reliable:true})); };
+    pe.on('error', e => {
+      if (e && e.type === 'peer-unavailable' && net.ch === ch && !joined){
+        if (tries < 50){ if (tries === 1 || ov.dataset.view !== 'waitguest' || !net.slowNote){ net.slowNote = true; showWaitingGuest(true); } setTimeout(knock, 2500); }
+        else showWaitingGuest(true, true);
+      }
+    });
+    ch.onOpen = () => { joined = true; };
     ch.onHostGone = () => { if (mode==='guest' || mode==='spectate'){ setConn(false, 'Disconnected'); view('gone', `<h2>The host left</h2><p>The match ended because the other player closed the game or lost connection.</p><button class="btn primary center" id="home" data-focus>Main menu</button>`); $('home').onclick = () => { leaveMatch(); toTitle(); }; } };
-    ch.wire(pe.connect(PEER_PREFIX + code, {serialization:'json', reliable:true}));
+    knock();
     setConn(true, 'Connecting…');
     return true;
   } catch(e){ netError(e); return false; }
@@ -1919,7 +1929,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
-    <p class="note" style="text-align:center">Version 18</p>
+    <p class="note" style="text-align:center">Version 19</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
@@ -2012,14 +2022,14 @@ async function onlineMenu(){
   $('back').onclick = toTitle;
 }
 function showWaitingHost(left){
-  view('waithost', `<h2>${left ? 'Your friend left' : 'Waiting for your friend'}</h2><p>Send your friend the invite link, or this code to enter under <b>Play a friend online</b>.</p>
+  view('waithost', `<h2>${left ? 'Your friend left' : 'Waiting for your friend'}</h2><p>Send your friend the invite link, or this code to enter under <b>Play a friend online</b>.</p><p class="note">Keep this game open. If you switch apps to send the link, come straight back here: your friend connects the moment you return.</p>
     <div class="code" id="codeTxt">${net.code}</div><button class="btn primary center" id="invite" data-focus>Copy invite link</button><button class="btn center" id="copy">Copy code</button><button class="btn ghost" id="cancel">Cancel</button>`);
   $('copy').onclick = () => { navigator.clipboard.writeText(net.code).then(() => { $('copy').textContent = 'Copied'; }).catch(() => { const s = getSelection(), rg = document.createRange(); rg.selectNodeContents($('codeTxt')); s.removeAllRanges(); s.addRange(rg); $('copy').textContent = 'Code selected'; }); };
   $('invite').onclick = () => { const url = location.href.split('#')[0] + '#join-' + net.code; navigator.clipboard.writeText(url).then(() => { $('invite').textContent = 'Link copied'; }).catch(() => { $('invite').textContent = url; }); };
   $('cancel').onclick = () => { leaveMatch(); toTitle(); };
 }
-function showWaitingGuest(slow){
-  view('waitguest', `<h2>Joining ${esc(net.code)}</h2><p>${slow ? 'Nobody is hosting this code yet. Check it with your friend, or ask them to host a match.' : 'Finding the table…'}</p><button class="btn ghost" id="cancel">Cancel</button>`);
+function showWaitingGuest(slow, gaveUp){
+  view('waitguest', `<h2>Joining ${esc(net.code)}</h2><p>${gaveUp ? 'Still nobody hosting this code. Check the code with your friend, or ask them to host again.' : slow ? 'Waiting for the host… Make sure your friend has the game open on screen (not switched to another app). This connects as soon as they are back.' : 'Finding the table…'}</p><button class="btn ghost" id="cancel">Cancel</button>`);
   $('cancel').onclick = () => { leaveMatch(); toTitle(); };
 }
 function statRows(){
