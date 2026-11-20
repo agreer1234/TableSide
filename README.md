@@ -11,6 +11,8 @@ Arcade 3D table tennis that runs in the browser. No accounts, no installs.
 
 ## Controls
 - **Swing**: move the mouse and your arm follows; swing it through the ball as the ring closes on it (green means now). Click, tap or `Space` also swing.
+- **Touch**: tap left or right of centre to aim, high on the screen to drive, low to chop. Or swipe: the angle of the swipe aims the shot.
+- **Timing**: early pulls the ball cross-court and deep, late pushes it down the line and shorter.
 - **Forehand / backhand**: hold the mouse right of centre for forehand, left of centre for backhand.
 - **Shape the shot**: swing up for topspin, down to chop, across to aim. A faster swing hits harder. Swing up hard at a gold ring to smash.
 - **Footwork**: automatic, or press `W` `A` `S` `D` to move your own feet. The floor ring and gauge show where to stand.

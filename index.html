@@ -423,12 +423,16 @@ function strikeHit(p, intent, d){
   const inTs = b.ts, inSpeed = Math.hypot(b.vx, b.vz);
   const high = b.y > TH + 0.4;
   const power = clamp(intent.power, 0, 1) * (G.sk && G.sk.stretch ? 0.55 : 1), spin = clamp(intent.spin, -1, 1);
-  const aim = clamp(intent.aim, -1, 1) + (d<0 ? -1 : 1) * (P.bh ? -1 : 1) * clamp(Math.abs(d)/WIN, 0, 1) * 0.35;
+  // timing shapes the shot: early pulls cross-court, late pushes down the line (mirrored on the backhand)
+  const tShift = clamp(d/WIN, -1, 1);
+  const timingAim = (P.bh ? -1 : 1) * Math.sign(tShift) * Math.pow(Math.abs(tShift), 0.75) * 0.75;
+  const aim = clamp(clamp(intent.aim, -1, 1) + timingAim + rand(-0.16, 0.16)*(1.2 - q*0.6), -1.15, 1.15);
   const smash = high && power > 0.55 && spin > -0.2;
   let vh, ts, f;
   if (smash){ vh = 12.5 + 3.5*q + power*1.5; ts = 0.45; f = rand(0.55, 0.85); }
   else if (spin < -0.3){ vh = 4.6 + power*2.2 + q*0.6 + 0.08*inSpeed; ts = spin*(0.6 + 0.4*power); f = rand(0.45, 0.7) + power*0.15; }
   else { vh = 5.2 + power*6.6 + q*1.1 + 0.15*inSpeed; ts = spin*(0.45 + 0.55*power); f = rand(0.45, 0.7) + power*0.22; }
+  if (!smash) f += -tShift*0.12 + rand(-0.06, 0.06);              // early (on the rise) runs deep, late (falling) lands shorter
   // the error model: how likely this swing is to miss, and how
   const stretch = !!(G.sk && G.sk.stretch);
   const vsChop = inTs < -0.4 && spin < 0.2, vsLoop = inTs > 0.5 && Math.abs(spin) < 0.25 && power > 0.5;
@@ -569,7 +573,7 @@ function step(dt){
     const r = 1 - G.R.hitter;
     if (G.R.opp===1 && !G.sk && strikeReady(b, r, pz)){
       G.sk = {p:r, t:G.clock - left, done:false, whiff:false};
-      const Pr = G.pl[r], gap = Math.hypot(Pr.x - Pr.tx, (Pr.z - Pr.tz)*0.6), lenient = manualFeet(r) ? 1.25 : 1;
+      const Pr = G.pl[r], gap = Math.hypot(Pr.x - Pr.tx, (Pr.z - Pr.tz)*0.6), lenient = manualFeet(r) ? 1.25 : isAI(r) ? 1 : 1.15;
       G.sk.stretch = gap > 0.17*lenient;
       if (gap > 0.36*lenient){ G.sk.done = true; G.sk.whiff = true; quality(r, 'Too far!', 'miss', b); startSwing(r, 'drive', null); }
       else if (isAI(r)){ const it = aiSwing(r); G.sk.done = true; if (it.d > 0.4){ G.sk.whiff = true; startSwing(r, 'drive', null); } else strikeHit(r, it, it.d); }
@@ -618,7 +622,7 @@ function updatePlayers(dt){
     }
     tz = s*clamp(tz*s, END+0.18, END+1.7);
     P.tx = tx; P.tz = tz;
-    const spd = (isAI(p) ? diff.speed : 3.2)*dt, ox = P.x, oz = P.z;
+    const spd = (isAI(p) ? diff.speed : manualFeet(p) ? 3.2 : 3.9)*dt, ox = P.x, oz = P.z;
     const mv = manualFeet(p) ? moveInput(p) : null;
     if (mv && !(G.ph==='serve' && G.sv===p)){
       // you move your own feet: right/left across the table, forward toward it, back away from it
@@ -626,7 +630,10 @@ function updatePlayers(dt){
       P.x = clamp(P.x + s*mv[0]/len*k*spd, -1.7, 1.7);
       P.z = s*clamp((P.z - s*mv[1]/len*k*spd*0.85)*s, END+0.15, END+1.8);
     } else if (!mv){
-      P.x += clamp(tx - P.x, -spd, spd); P.z += clamp(tz - P.z, -spd*0.8, spd*0.8);
+      // accelerate toward the spot and ease in, like a real shuffle step
+      const vmax = spd/Math.max(dt, 1e-4), k = 1 - Math.exp(-dt*12);
+      P.vx = lerp(P.vx||0, clamp((tx - P.x)*7, -vmax, vmax), k); P.vz = lerp(P.vz||0, clamp((tz - P.z)*7, -vmax*0.8, vmax*0.8), k);
+      P.x += P.vx*dt; P.z += P.vz*dt;
     }
     P.walk += Math.hypot(P.x-ox, P.z-oz)*9;
     P.crouch = lerp(P.crouch, G.ph==='rally' ? 1 : 0.4, Math.min(1, dt*6));
@@ -709,7 +716,7 @@ function onHover(e){
       const last = arm.samples[arm.samples.length-1] || [0, start[0], start[1]];
       const dx = last[1] - start[0], dy = last[2] - start[1];
       if (G.ph==='serve' && G.srv.state==='hold') return;          // toss with a click or Space first
-      sendSwing(me, {t:clock, aim: clamp(dx/(innerWidth*0.16), -1, 1), spin: clamp(-dy/(innerHeight*0.13), -1, 1), power: clamp(0.25 + (arm.peak - 2.1)/8, 0.25, 1), mouse:true});
+      sendSwing(me, {t:clock, aim: swipeAim(dx, dy, innerWidth*0.16), spin: clamp(-dy/(innerHeight*0.13), -1, 1), power: clamp(0.25 + (arm.peak - 2.1)/8, 0.25, 1), mouse:true});
     }, 70);
   }
 }
@@ -720,12 +727,17 @@ cv.addEventListener('pointermove', e => {
   if (Math.hypot(gesture.x-gesture.x0, gesture.y-gesture.y0) > 26) fireGesture(false);
 });
 cv.addEventListener('pointerup', e => { if (gesture && gesture.id===e.pointerId && !gesture.fired) fireGesture(true); gesture = null; });
+// aim from a swipe: its angle off straight up/down, or its sideways distance, whichever says more
+function swipeAim(dx, dy, px){ const byAngle = clamp(Math.atan2(dx, Math.abs(dy) + 6)/0.5, -1, 1), byDist = clamp(dx/px, -1, 1); return Math.abs(byAngle) > Math.abs(byDist) ? byAngle : byDist; }
 function fireGesture(tap){
   const g = gesture; if (!g) return; g.fired = true;
   const dx = g.x - g.x0, dy = g.y - g.y0, ms = Math.max(16, performance.now() - g.t0);
   let intent;
-  if (tap){ const nx = (g.x0/innerWidth - 0.5)*2; intent = {aim: clamp(nx*1.3, -1, 1)*0.8, spin: 0.35, power: 0.55}; }
-  else { const speed = Math.hypot(dx,dy)/ms; intent = {aim: clamp(dx/110, -1, 1), spin: clamp(-dy/70, -1, 1), power: clamp(0.3 + speed*0.42, 0.3, 1)}; }
+  if (tap){
+    // tap left or right of centre to aim; high on the screen to drive, low to chop
+    const nx = (g.x0/innerWidth - 0.5)*2, ny = g.y0/innerHeight;
+    intent = {aim: clamp(nx*1.25, -1, 1), spin: ny < 0.45 ? 0.8 : ny > 0.75 ? -0.6 : 0.35, power: ny < 0.45 ? 0.65 : 0.55};
+  } else { const speed = Math.hypot(dx,dy)/ms; intent = {aim: swipeAim(dx, dy, 110), spin: clamp(-dy/70, -1, 1), power: clamp(0.3 + speed*0.42, 0.3, 1)}; }
   intent.t = g.clock;
   const who = mode==='local' && g.y0 < innerHeight*0.4 ? 1 : me;
   sendSwing(who, intent);
@@ -1442,7 +1454,8 @@ function howTo(back){
       <b>Swing</b><span>Move the mouse and your arm follows. Swing it through the ball as the ring closes (green means now). Perfect timing hits harder and lands safer. Clicking, tapping or <kbd>Space</kbd> also swing.</span>
       <b>Footwork</b><span>Your player moves to the ball automatically. Press <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move your feet yourself: A and D step across, W toward the table, S back. A ring on the floor marks the spot for the incoming ball and turns green when you're on it. Switch back in the pause menu.</span>
       <b>Forehand / backhand</b><span>Hold the mouse right of centre for a forehand, left of centre for a backhand. Your player sets up for the side you show, so pick early: switching late leaves you stretching.</span>
-      <b>Early / late</b><span>Early pulls the ball cross-court, late pushes it down the line. Too far off and you miss.</span>
+      <b>Early / late</b><span>Early pulls the ball cross-court and deep, late pushes it down the line and shorter. The further off, the bigger the angle, until you miss.</span>
+      <b>Touch</b><span>Tap left or right of centre to aim, high on the screen to drive, low to chop. Or swipe: the angle of your swipe aims the shot.</span>
       <b>Flick</b><span>Drag and flick instead of clicking: up for topspin, down to chop backspin, left or right to aim. A faster flick hits harder.</span>
       <b>Keys</b><span>Hold <kbd>←</kbd><kbd>→</kbd> to aim, <kbd>↑</kbd> for topspin, <kbd>↓</kbd> to chop, <kbd>Shift</kbd> for full power, then press <kbd>Space</kbd>.</span>
       <b>Smash</b><span>A gold ring means a high ball. Flick up hard (or hold <kbd>Shift</kbd>) to smash.</span>
