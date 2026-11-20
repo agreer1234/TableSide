@@ -64,6 +64,7 @@ button,input{font:inherit;color:inherit}
 .emotes button kbd{margin-left:6px}
 .shotmods{position:fixed;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 16px);display:flex;gap:8px;z-index:5}
 .shotmods button{border:0;border-radius:999px;padding:11px 16px;background:rgba(14,23,48,.88);box-shadow:inset 0 0 0 1.5px var(--chip-line);font-family:var(--f-display);font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:15px;cursor:pointer}
+.shotmods button.tk{background:linear-gradient(90deg,#ff8a1d,#ffd25e);color:#2a1206;box-shadow:0 0 16px rgba(255,170,60,.6)}
 .shotmods button[aria-pressed="true"]{background:var(--gold);color:#2a1206;box-shadow:0 0 16px rgba(255,210,94,.6)}
 body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 button{touch-action:manipulation}
@@ -222,7 +223,7 @@ kbd{font-family:var(--f-body);font-size:11px;border:1px solid var(--chip-line);b
 <div class="prompt" id="prompt" style="opacity:0"></div>
 <div class="meter" id="meter" hidden><div class="lab">Hit the green!</div><div class="bar"><div class="zone"></div><div class="needle" id="needle"></div></div></div>
 <button class="trick" id="trickBtn" hidden>Trick serve<kbd>T</kbd></button>
-<div class="shotmods" id="shotmods" hidden><button id="modLob" aria-pressed="false">Lob</button><button id="modDrop" aria-pressed="false">Drop</button></div>
+<div class="shotmods" id="shotmods" hidden><button id="modTrick" class="tk" hidden>Trick serve</button><button id="modLob" aria-pressed="false">Lob</button><button id="modDrop" aria-pressed="false">Drop</button></div>
 <div class="feet" id="feet" style="opacity:0"><div class="cue" id="feetCue">In position</div><div class="track"><div class="zone"></div><div class="me" id="feetMe"></div></div></div>
 <div class="speed" id="speed" style="opacity:0"><div class="k" id="speedK">Loop</div><div class="v"><span id="speedV">0</span><small>km/h</small></div></div>
 <div class="coach" id="coach" hidden>
@@ -1582,7 +1583,9 @@ function hud(){
   $('rally').classList.toggle('hot', intense());
   $('emotes').hidden = !canEmote() || !ov.hidden;
   $('trickBtn').hidden = !myServeHold();
-  $('shotmods').hidden = !(TOUCH && ['cpu','local','host','guest'].includes(mode) && (G.ph==='rally' || G.ph==='serve') && ov.hidden);
+  $('modTrick').hidden = true;
+  if (myServeHold() && !trickHinted && G.t > 0.4){ trickHinted = true; try { if (!localStorage.getItem('tableside:trickHint')){ localStorage.setItem('tableside:trickHint', '1'); toast('Your serve: tap to toss, or hold for a trick serve'); } } catch(e){} }
+  $('shotmods').hidden = !(TOUCH && ['cpu','local','host','guest'].includes(mode) && ov.hidden && G.ph==='rally');
   const trickOn = mode!=='attract' && G.ph==='serve' && G.srv.state==='trick';
   $('meter').hidden = !trickOn; if (trickOn) $('needle').style.left = (meterPos(G.srv.t)*100) + '%';
   let pr = '';
@@ -1590,7 +1593,7 @@ function hud(){
     const mine = mode==='local' ? G.sv : me;
     if (G.sv===mine){
       const k = mode==='local' && G.sv===1 ? 'F' : 'Space';
-      pr = G.srv.state==='hold' ? `Tap or <span class="key">${k}</span> to toss · hold for a trick serve` : G.srv.state==='trick' ? `Swing, click or <span class="key">${k}</span> on the green` : G.ball.vy > 0 ? 'Wait for the drop…' : `Swing, click or <span class="key">${k}</span> to serve`;
+      pr = G.srv.state==='hold' ? (TOUCH ? 'Tap to toss · hold for trick serve' : `Tap or <span class="key">${k}</span> to toss · hold for a trick serve`) : G.srv.state==='trick' ? `Swing, click or <span class="key">${k}</span> on the green` : G.ball.vy > 0 ? 'Wait for the drop…' : `Swing, click or <span class="key">${k}</span> to serve`;
     } else pr = `${esc(names[G.sv])} to serve`;
   }
   if (pr !== promptKey){ promptKey = pr; $('prompt').innerHTML = pr; }
@@ -1857,9 +1860,10 @@ function renderRecords(){
 function openRecords(){ $('records').hidden = false; renderRecords(); $('recClose').focus(); }
 function closeRecords(){ $('records').hidden = true; }
 $('recBtn').onclick = openRecords;
-let armedMod = null;
+let armedMod = null, trickHinted = false;
 function setMod(m){ armedMod = m; $('modLob').setAttribute('aria-pressed', String(m==='lob')); $('modDrop').setAttribute('aria-pressed', String(m==='drop')); }
 $('modLob').onclick = () => setMod(armedMod==='lob' ? null : 'lob');
+$('modTrick').onclick = () => tryTrick();
 $('modDrop').onclick = () => setMod(armedMod==='drop' ? null : 'drop');
 function myServeHold(){ return G.ph==='serve' && G.srv.state==='hold' && (mode==='local' || G.sv===me) && ['cpu','local','host','guest'].includes(mode); }
 function tryTrick(){ if (!myServeHold()) return; unlockAudio(); sendSwing(mode==='local' ? G.sv : me, {t:G.clock, aim:0, spin:0, power:0.5, trick:true}); }
@@ -1915,6 +1919,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
+    <p class="note" style="text-align:center">Version 18</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
