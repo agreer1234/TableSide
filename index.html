@@ -1142,9 +1142,10 @@ function ik(S, T, a, b, pole, out){
 function latheGeo(profile, seg=22){ return new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), seg); }
 // a limb along +y from 0 to 1 (scaled to length when posed): radius r0 at the base, r1 at the end, with a muscle bulge
 function limbGeo(r0, r1, bulge=0, peak=0.35){
-  const pts = [[0, 0]];
+  // an open tube: the ends hide inside the joints, and a pointed cap there shades badly on phones
+  const pts = [];
   for (let i=0;i<=14;i++){ const t = i/14, sw = Math.exp(-Math.pow((t - peak)/0.28, 2)); pts.push([lerp(r0, r1, t)*(1 + bulge*sw), t]); }
-  pts.push([0, 1]); return latheGeo(pts, 16);
+  return latheGeo(pts, 18);
 }
 function jerseyTex(num){
   return tex(256, 256, (g, w, h) => {
@@ -1177,12 +1178,12 @@ function makeChar(p){
   c.chest = new THREE.Object3D();
   // shorts
   c.hips = new THREE.Group(); scene.add(c.hips);
-  const sht = M(latheGeo([[0.0,0.04],[0.158,0.04],[0.168,-0.04],[0.172,-0.15],[0.0,-0.15]]), shortsM, c.hips); sht.scale.z = 0.74;
-  for (const sx of [-1, 1]){ const st = M(new THREE.BoxGeometry(0.012, 0.17, 0.05), trim, c.hips); st.position.set(sx*0.171, -0.05, 0); }
+  const sht = M(latheGeo([[0.15,0.045],[0.158,0.04],[0.168,-0.04],[0.172,-0.15]]), shortsM, c.hips); sht.scale.z = 0.74;
+  const band = M(new THREE.TorusGeometry(0.162, 0.011, 8, 28), trim, c.hips); band.rotation.x = Math.PI/2; band.scale.set(1, 0.74, 1); band.position.y = 0.035;
   // head: a group so the face turns as one
   c.head = new THREE.Group(); scene.add(c.head);
   const skull = M(new THREE.SphereGeometry(0.115, 26, 20), skin, c.head); skull.scale.set(0.9, 1.05, 1.0);
-  const jaw = M(new THREE.SphereGeometry(0.085, 20, 14), skin, c.head); jaw.scale.set(0.95, 0.75, 0.95); jaw.position.set(0, -0.06, -0.025);
+  const jaw = M(new THREE.SphereGeometry(0.078, 20, 14), skin, c.head); jaw.scale.set(0.88, 0.7, 0.9); jaw.position.set(0, -0.052, -0.012);
   for (const sx of [-1, 1]){
     const ear = M(new THREE.SphereGeometry(0.024, 10, 8), skin, c.head); ear.scale.set(0.5, 1, 0.8); ear.position.set(sx*0.103, -0.005, 0.01);
     const ew = M(new THREE.SphereGeometry(0.016, 12, 8), white, c.head); ew.scale.set(1.2, 0.8, 0.5); ew.position.set(sx*0.038, 0.012, -0.104);
@@ -1198,8 +1199,8 @@ function makeChar(p){
   c.band = M(new THREE.TorusGeometry(0.113, 0.012, 8, 28), shirt, c.head); c.band.rotation.x = Math.PI/2 + 0.2; c.band.position.y = 0.045; c.band.scale.set(0.93, 1.03, 1);
   c.hair = new THREE.Object3D(); c.eyes = [new THREE.Object3D(), new THREE.Object3D()];
   // arms: shoulder cap, sleeve, upper arm, elbow, forearm, wristband, hand
-  c.sleeves = [M(new THREE.SphereGeometry(0.072, 16, 12), shirt), M(new THREE.SphereGeometry(0.072, 16, 12), shirt)];
-  c.sleeve = [M(limbGeo(0.07, 0.062), shirt), M(limbGeo(0.07, 0.062), shirt)];
+  c.sleeves = [M(new THREE.SphereGeometry(0.06, 16, 12), shirt), M(new THREE.SphereGeometry(0.06, 16, 12), shirt)];
+  c.sleeve = [M(limbGeo(0.06, 0.055), shirt), M(limbGeo(0.06, 0.055), shirt)];
   c.uArm = [M(limbGeo(0.05, 0.04, 0.18), skin), M(limbGeo(0.05, 0.04, 0.18), skin)];
   c.elbowJ = [M(new THREE.SphereGeometry(0.041, 12, 10), skin), M(new THREE.SphereGeometry(0.041, 12, 10), skin)];
   c.fArm = [M(limbGeo(0.041, 0.03, 0.22, 0.25), skin), M(limbGeo(0.041, 0.03, 0.22, 0.25), skin)];
@@ -1241,7 +1242,7 @@ function makePaddle(){
 }
 function build(){
   renderer = new THREE.WebGLRenderer({canvas: cv, antialias: true});
-  renderer.setPixelRatio(Math.min(TOUCH ? 1.5 : 2, devicePixelRatio||1));
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio||1));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b1226); scene.fog = new THREE.Fog(0x0b1226, 11, 26);
@@ -1249,7 +1250,7 @@ function build(){
   scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a1c18, 0.62));
   const key = new THREE.DirectionalLight(0xffffff, 1.0);
   key.position.set(0.8, 7, 1.5); key.castShadow = true; key.shadow.mapSize.set(TOUCH ? 1024 : 2048, TOUCH ? 1024 : 2048);
-  Object.assign(key.shadow.camera, {left:-3.5, right:3.5, top:4, bottom:-4, near:1, far:14}); key.shadow.bias = -0.0005; key.shadow.radius = 3;
+  Object.assign(key.shadow.camera, {left:-3.5, right:3.5, top:4, bottom:-4, near:1, far:14}); key.shadow.bias = -0.0006; key.shadow.normalBias = 0.025; key.shadow.radius = 3;
   scene.add(key);
   for (const z of [-4, 0, 4]) { const pl = new THREE.PointLight(0xfff0d8, 0.28, 14); pl.position.set(0, 5, z); scene.add(pl); }
   const floorTex = tex(1024, 2048, (g, w, h) => {
@@ -1954,7 +1955,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
-    <p class="note" style="text-align:center">Version 20</p>
+    <p class="note" style="text-align:center">Version 21</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
