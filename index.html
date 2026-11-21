@@ -55,6 +55,7 @@ button,input{font:inherit;color:inherit}
 .meter .lab{font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.08em;color:var(--gold);font-size:18px;text-shadow:0 2px 8px rgba(0,0,0,.6)}
 .meter .bar{position:relative;width:min(320px,80vw);height:22px;border-radius:999px;background:linear-gradient(90deg,#3a1220,#1c2c58 40%,#1c2c58 60%,#3a1220);box-shadow:inset 0 0 0 2px var(--chip-line),0 6px 20px rgba(0,0,0,.5);overflow:hidden}
 .meter .zone{position:absolute;top:0;bottom:0;left:46%;width:8%;background:var(--perfect);box-shadow:0 0 14px var(--perfect)}
+.meter.locked .needle{background:#ff5d5d;box-shadow:0 0 12px #ff5d5d}.meter.locked.good .needle{background:#fff;box-shadow:0 0 16px var(--perfect),0 0 4px #fff}
 .meter .needle{position:absolute;top:-2px;bottom:-2px;width:5px;margin-left:-2px;background:#fff;border-radius:3px;box-shadow:0 0 8px #fff}
 .trick{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:5;border:0;border-radius:999px;padding:13px 22px;background:linear-gradient(90deg,#ff8a1d,#ffd25e);color:#2a1206;font-family:var(--f-display);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.05em;font-size:17px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
 .trick kbd{margin-left:6px;background:rgba(0,0,0,.15);border-color:rgba(0,0,0,.25);color:#2a1206}
@@ -594,7 +595,7 @@ function serveHit(p, intent, d){
   sfx('hit', 0.4, q===1);
 }
 function toss(p){ if (G.srv.state!=='hold') return; G.srv = {state:'toss', t:0}; G.ball.vy = 2.35; G.ball.vx = G.ball.vz = 0; sfx('toss'); }
-/* trick serve: a huge toss and a pirouette, then stop a fast meter in a narrow green zone. Nail it and the serve is nearly unreturnable; miss and it's a fault. */
+/* trick serve: a huge toss and a pirouette, then stop a fast meter in a narrow green zone. Nail it for an underhand hook with absurd sidespin; miss and it's a fat floater or a fault. */
 const TRICK_ZONE = 0.05;   // the green drawn on screen is ±0.04; the extra covers display lag
 const meterPos = t => { const x = (Math.max(0, t)/0.42) % 2; return x < 1 ? x : 2 - x; };   // sweeps 0..1..0, about 0.6 s per pass
 function trickToss(p){
@@ -604,61 +605,68 @@ function trickToss(p){
   banner('Trick serve!', 'Stop the meter in the green', 'gold'); sfx('toss'); sfx('whoosh', 0.8); crowdOoh(0.5);
 }
 function trickServeHit(p, m){
-  const b = G.ball, s = sideSign(p), dir = dirOf(p), ok = Math.abs(m - 0.5) <= TRICK_ZONE;
+  // an underhand scoop from down by the knee: the paddle brushes up the side of the ball for absurd sidespin
+  const b = G.ball, s = sideSign(p), dir = dirOf(p), miss = Math.max(0, Math.abs(m - 0.5) - TRICK_ZONE);
+  const ok = miss === 0;
   G.pl[p].emote = null;
-  const hitAt = {x:b.x, y:Math.max(b.y, TH+0.15), z:b.z}; b.y = hitAt.y;
-  let shot, ts, ss;
-  let kind = null;
+  const hitAt = {x:b.x, y:Math.max(b.y, TH+0.1), z:b.z}; b.y = hitAt.y;
+  const legal = c => { const l = predictBounce({...c}, 2); return !l.net && !l.long && l.firstSide === p && l.side !== p && Math.abs(l.x) < W/2 - 0.03 ? l : null; };
+  let shot = null, kind = 'Botched', label = 'Botched!', cls = 'miss';   // label: the pop-up at the paddle
   if (ok){
-    // two flavours, both checked to land legally before they're used:
-    //   Rocket: a blur with maximum topspin that dips it in deep;  Corkscrew: savage backspin and a huge sideways curve, kept short
-    kind = Math.random() < 0.5 ? 'Rocket' : 'Corkscrew';
-    const plans = kind==='Rocket'
-      ? [[10, 1.5, 0.1], [9.5, 1.5, 0.05], [9, 1.5, 0], [8.5, 1.45, 0], [8, 1.4, 0]]   // a legal serve tops out near here: it must bounce on your side first
-      : [[7.2, -1.5, 1.1], [6.8, -1.5, 0.95], [6.4, -1.4, 0.8], [6, -1.3, 0.6], [5.6, -1.2, 0.45]];
-    if (kind==='Rocket'){ hitAt.y = TH + 0.08; b.y = hitAt.y; }          // struck low and flat, the way real fast serves are
-    let found = false;
-    for (const [vh, t, curve] of plans){
-      for (let a=0;a<6 && !found;a++){
-        const ssSign = Math.random() < 0.5 ? 1 : -1;
-        ts = t; ss = ssSign*curve*s;
-        const tx = clamp(rand(-0.5, 0.5) - ssSign*s*0.32*curve, -0.62, 0.62);   // aim against the curve so it bends back onto the table
-        const prog = (kind==='Rocket' ? rand(0.82, 0.93) : rand(0.42, 0.62))*END;
-        const dx = tx - b.x, dz = dir*prog - b.z, dd = Math.hypot(dx, dz);
-        const cand = shoot({...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, 2, prog, dir, -9, 1.2);
-        if (Math.hypot(cand.vx, cand.vz) < vh*0.8) continue;                  // the solver had to slow it down: not special enough
-        const land = predictBounce({...cand}, 2);
-        if (!land.net && !land.long && land.firstSide === p && land.side !== p && Math.abs(land.x) < W/2 - 0.04){ shot = cand; found = true; }
+    // the hook: starts out wide (even outside the table), bananas back in, and breaks sideways again off the bounce
+    let best = null;
+    for (const [lo, hi] of [[2.1, 2.9], [1.6, 2.2], [1.1, 1.7], [0.7, 1.2]]) for (let a=0;a<12 && !best;a++){
+      const hook = Math.random() < 0.5 ? 1 : -1, ssMag = rand(lo, hi), ts = Math.random() < 0.6 ? rand(1.1, 1.5) : -rand(0.5, 1.0);   // heavy topspin hook, or a floating backspin hook
+      const ss = hook*ssMag*s, vh = rand(4.6, 6.2), prog = rand(0.45, 0.85)*END;
+      const tx = -hook*s*rand(0.55, 1.1);                                    // launch out toward one side...
+      const dx = tx - b.x, dz = dir*prog - b.z, dd = Math.hypot(dx, dz);
+      const c = {...b, vx: dx/dd*vh, vz: dz/dd*vh, ts, ss}, r = solveVy(c, 2, prog, dir, -3, 3);
+      if (r.err > 0.25) continue;
+      c.vy = r.vy; const l = legal(c); if (!l) continue;
+      best = {c};
+      for (let k=0;k<5;k++){                                                // a few more from the same tier: keep the wildest legal angle
+        const tx2 = -hook*s*rand(0.55, 1.1), vh2 = rand(4.6, 6.2), prog2 = rand(0.45, 0.85)*END, dx2 = tx2 - b.x, dz2 = dir*prog2 - b.z, dd2 = Math.hypot(dx2, dz2);
+        const c2 = {...b, vx: dx2/dd2*vh2, vz: dz2/dd2*vh2, ts, ss}, r2 = solveVy(c2, 2, prog2, dir, -3, 3); if (r2.err > 0.25) continue;
+        c2.vy = r2.vy; const l2 = legal(c2); if (l2 && Math.abs(l2.x) > Math.abs(legal(best.c).x)) best = {c: c2};
       }
-      if (found) break;
     }
-    if (!found){
-      // never fault a nailed meter: fall back to a firm, safe, heavy-topspin serve
-      kind = 'Rocket'; ts = 1.2; ss = 0;
-      const dx = -b.x, dz = dir*0.75*END - b.z, dd = Math.hypot(dx, dz);
-      shot = shoot({...b, vx: dx/dd*7, vz: dz/dd*7, ts, ss}, 2, 0.75*END, dir, -9, 1.2);
+    if (!best){ const c = {...b, vx: 0, vz: dir*4.8, ts: 1.2, ss: 0.6*s}, r = solveVy(c, 2, 0.7*END, dir, -3, 3); c.vy = r.vy; if (legal(c)) best = {c}; }
+    if (best){ shot = best.c; kind = 'Hook'; label = 'Nailed it!'; cls = 'smash'; }
+  }
+  if (!shot){
+    // a miss: the further from the green, the likelier it's a fault; otherwise a fat, spinless floater that sits up to be smashed
+    const faultChance = ok ? 0 : clamp(0.25 + miss*1.8, 0.25, 0.85);
+    if (Math.random() >= faultChance){
+      for (let a=0;a<6 && !shot;a++){
+        const vh = rand(3.6, 5), prog = rand(0.35, 0.7)*END, tx = rand(-0.25, 0.25);
+        const dx = tx - b.x, dz = dir*prog - b.z, dd = Math.hypot(dx, dz);
+        const c = {...b, vx: dx/dd*vh, vz: dz/dd*vh, ts: 0.05, ss: rand(-0.1, 0.1)}, r = solveVy(c, 2, prog, dir, -2.5, 3.6);
+        c.vy = r.vy; if (legal(c)) shot = c;
+      }
+      if (shot){ label = 'Floater…'; cls = 'off'; }
     }
-  } else {
-    ts = 0.6; ss = 0.6*s;                                                  // botched: into the net or off the end
-    const dx = rand(-0.4, 0.4) - b.x, long = Math.random() < 0.5, dz = dir*(long ? 1.3*END : 0.05) - b.z, dd = Math.hypot(dx,dz);
-    shot = {...b, vx: dx/dd*6, vz: dz/dd*6, ts, ss, vy: long ? 0.6 : -5};
+    if (!shot){
+      const dx = rand(-0.4, 0.4) - b.x, long = Math.random() < 0.5, dz = dir*(long ? 1.3*END : 0.05) - b.z, dd = Math.hypot(dx, dz);
+      shot = {...b, vx: dx/dd*5, vz: dz/dd*5, ts: 0.4, ss: 0.8*s, vy: long ? 0.8 : -5};
+    }
   }
   G.ph = 'rally';
-  const kmh = launch(p, shot.vx, shot.vy, shot.vz, ts, ss, true);
-  G.R.trick = ok;
-  G.lh = {p, k: ok ? kind + ' serve' : 'Botched trick serve', kmh, n:G.hits};
-  quality(p, ok ? (kind==='Rocket' ? 'Rocket!' : 'Corkscrew!') : 'Botched!', ok ? 'smash' : 'miss', hitAt);
-  if (ok) banner(kind==='Rocket' ? 'Rocket serve!' : 'Corkscrew serve!', kind==='Rocket' ? `${kmh} km/h of topspin` : 'Savage spin and curve', 'gold');
-  startSwing(p, 'serve', hitAt);
-  sfx('hit', ok ? 0.9 : 0.4, ok, ok ? 'smash' : 'drive');
-  if (ok){ G.st[p].perf++; fx('perfect'); sparks(hitAt, 0xffd25e, 40, 2.2); crowdOoh(0.9); }
+  const kmh = launch(p, shot.vx, shot.vy, shot.vz, shot.ts, shot.ss, true);
+  G.R.trick = ok && kind==='Hook';
+  G.R.badLob = !ok && label==='Floater…';                                  // the receiver (and the computer) gets to tee off on it
+  G.lh = {p, k: kind==='Hook' ? 'Underhand hook serve' : 'Botched trick serve', kmh, n:G.hits};
+  quality(p, label, cls, hitAt);
+  startSwing(p, 'trick', hitAt);
+  sfx('hit', kind==='Hook' ? 0.9 : 0.4, kind==='Hook', kind==='Hook' ? 'smash' : 'drive');
+  if (kind==='Hook'){ banner('Underhand hook!', 'Absurd sidespin', 'gold'); G.st[p].perf++; fx('perfect'); sparks(hitAt, 0xffd25e, 40, 2.2); crowdOoh(0.9); }
+  else crowdOoh(0.5);
 }
 // a swing from player p: {t: game clock of the press | d: remote timing offset, aim, spin, power}
 function swing(p, intent){
   const P = G.pl[p];
   if (G.ph==='serve' && G.sv===p){
     if (G.srv.state==='hold'){ if (intent.trick) trickToss(p); else toss(p); return; }
-    if (G.srv.state==='trick'){ const lag = intent.t != null ? clamp(G.clock - intent.t, 0, 0.3) : 0; trickServeHit(p, intent.m !== undefined ? clamp(+intent.m, 0, 1) : meterPos(G.srv.t - lag)); return; }
+    if (G.srv.state==='trick'){ if (G.srv.lock == null){ const lag = intent.t != null ? clamp(G.clock - intent.t, 0, 0.3) : 0; G.srv.lock = intent.m !== undefined ? clamp(+intent.m, 0, 1) : meterPos(G.srv.t - lag); } return; }   // the press locks the meter; the scoop comes when the ball drops
     const b = G.ball;
     if (b.vy > 0) return;                                  // still rising: wait for the drop
     const d = (TH + 0.34 - b.y) / 1.6;                     // height error expressed as timing
@@ -724,8 +732,8 @@ function step(dt){
       b.vy -= GRAV*dt; b.y += b.vy*dt; G.srv.t += dt;
       const h = tossHand(p); b.x = h.x; b.z = h.z;
       if (G.srv.state==='trick'){
-        if (isAI(p) && b.vy < 0 && b.y <= TH+0.45) trickServeHit(p, 0.5 + rand(-0.12, 0.12));   // the computer lands about a third of them
-        else if (b.y < TH+0.1) trickServeHit(p, 0);                         // waited too long: botched
+        if (isAI(p) && G.srv.lock == null && b.vy < 0 && b.y <= TH+0.75) G.srv.lock = 0.5 + rand(-0.12, 0.12);   // the computer lands about a third of them
+        if (b.vy < 0 && b.y <= TH+0.32) trickServeHit(p, G.srv.lock != null ? G.srv.lock : 0);   // scoop it up from below at hip height (no press in time: botched)
       }
       else if (isAI(p) && b.vy < 0 && b.y <= TH+0.34){ const it = aiServe(); serveHit(p, it, it.d); }
       else if (b.y < TH+0.06){ G.srv = {state:'hold', t:0}; G.t = 0.3; if (!isAI(p)) quality(p, 'Toss again', 'off', b); }
@@ -1008,6 +1016,7 @@ function unlockAudio(){
       sfxBus = ac.createGain(); sfxBus.connect(comp);
       ambBus = ac.createGain(); ambBus.gain.value = 1; ambBus.connect(comp);
       startAmbience();
+      setTimeout(warmCrowd, 600);
     }
     if (ac.state !== 'running') ac.resume();
     // play one silent sample inside the gesture: some browsers only open the audio path this way
@@ -1085,8 +1094,30 @@ function sfx(kind, power=0.5, big=false, type='drive'){
     }
   } catch(e){}
 }
+/* crowd sounds are big buffers: build a few once, in the background, and reuse them (building one mid-game is a visible hitch on phones) */
+const crowdBufs = {clapHi:[], clapLo:[], roar:[]};
+function makeClaps(level, dur){
+  const len = Math.floor(ac.sampleRate*dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  const claps = Math.floor(260*level*dur);
+  for (let c=0;c<claps;c++){
+    const pos = Math.pow(Math.random(), 1.6)*len, amp = 0.5 + Math.random()*0.5, w = Math.floor(ac.sampleRate*(0.003 + Math.random()*0.004));
+    for (let i=0;i<w && pos+i<len;i++) d[Math.floor(pos)+i] += (Math.random()*2-1)*amp*Math.pow(1 - i/w, 2);
+  }
+  return buf;
+}
+const roarShape = x => Math.pow(Math.sin(Math.PI*Math.min(1, x*1.6)), 1.5) * (0.6 + 0.4*Math.random());
+function warmCrowd(){
+  if (!ac) return;
+  const jobs = [() => crowdBufs.roar.push(noiseBuf(2.2, roarShape)), () => crowdBufs.clapHi.push(makeClaps(1.5, 2.2)), () => crowdBufs.clapLo.push(makeClaps(0.7, 2.2)),
+                () => crowdBufs.roar.push(noiseBuf(2.2, roarShape)), () => crowdBufs.clapHi.push(makeClaps(1.5, 2.2)), () => crowdBufs.clapLo.push(makeClaps(0.7, 2.2))];
+  let i = 0; const next = () => { if (i < jobs.length){ try { jobs[i++](); } catch(e){} setTimeout(next, 250); } }; next();   // one at a time, between frames
+}
+const pickBuf = a => a.length ? a[Math.floor(Math.random()*a.length)] : null;
 function applause(level, dur=2.2){
   // many hands: short clicks at a density that rises then thins out
+  const pre = dur === 2.2 ? pickBuf(level >= 1 ? crowdBufs.clapHi : crowdBufs.clapLo) : null;
+  if (pre){ const s = ac.createBufferSource(); s.buffer = pre; s.playbackRate.value = 0.95 + Math.random()*0.1; const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1700; f.Q.value = 0.5;
+    const g = ac.createGain(); g.gain.value = 0.16*level; s.connect(f); f.connect(g); g.connect(ambBus); s.start(ac.currentTime + 0.05); return; }
   const len = Math.floor(ac.sampleRate*dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
   const claps = Math.floor(260*level*dur);
   for (let c=0;c<claps;c++){
@@ -1115,7 +1146,7 @@ function crowd(level){
   if (!ac || mode==='attract') return;
   try {
     const t = ac.currentTime;
-    const s = noise(2.2, x => Math.pow(Math.sin(Math.PI*Math.min(1, x*1.6)), 1.5) * (0.6 + 0.4*Math.random()));
+    const s = ac.createBufferSource(); s.buffer = pickBuf(crowdBufs.roar) || noiseBuf(2.2, roarShape); s.playbackRate.value = 0.95 + Math.random()*0.1;
     const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.5;
     const g = ac.createGain(); g.gain.value = 0.14*level; s.connect(f); f.connect(g); g.connect(ambBus); s.start(t);
     applause(Math.min(1.5, level));
@@ -1377,7 +1408,7 @@ function handPos(p, out){
   }
   const yAdj = P.strikeY ? clamp(P.strikeY - 1.0, -0.35, 0.6) : 0;
   if (sw){
-    const t = (G.clock - sw.t0) / 0.26;
+    const t = (G.clock - sw.t0) / (sw.kind==='trick' ? 0.55 : 0.26);
     if (t < 1){
       const ss = sw.bh ? POSE.bh : POSE.fh;
       const back = sw.kind==='smash' ? SMASH_BACK : ss.back, contact = ss.contact, follow = ss.follow[sw.kind] || ss.follow.drive;
@@ -1385,11 +1416,16 @@ function handPos(p, out){
       if (sw.hit) hB.set(sw.hit.x, sw.hit.y, sw.hit.z); else L2W(P, p, [contact[0], contact[1]+yAdj, contact[2]], hB);
       L2W(P, p, follow, hC);
       if (sw.kind==='serve' && sw.hit) hA.copy(hB).add(tmpV.set(sideSign(p)*0.25, 0.1, sideSign(p)*0.25));
+      if (sw.kind==='trick'){ L2W(P, p, [0.62, 0.62, -0.32], hA); L2W(P, p, [-0.34, 1.7, 0.3], hC);   // scoop: up through the ball and whip high across the body
+        return t < 0.1 ? out.copy(hA).lerp(hB, ease(t/0.1)) : out.copy(hB).lerp(hC, ease((t-0.1)/0.9)); }
       return t < 0.22 ? out.copy(hA).lerp(hB, ease(t/0.22)) : out.copy(hB).lerp(hC, ease((t-0.22)/0.78));
     }
     P.swing = null;
   }
-  if (G.ph==='serve' && G.sv===p) return L2W(P, p, G.srv.state==='toss' ? [0.42,1.05,-0.05] : [0.36,0.92,0.1], out);
+  if (G.ph==='serve' && G.sv===p){
+    if (G.srv.state==='trick'){ const k = ease(clamp((G.srv.t - 0.35)/0.5, 0, 1)); return L2W(P, p, [lerp(0.42, 0.62, k), lerp(1.05, 0.62, k), lerp(-0.05, -0.32, k)], out); }   // drop the paddle down low and back
+    return L2W(P, p, G.srv.state==='toss' ? [0.42,1.05,-0.05] : [0.36,0.92,0.1], out);
+  }
   const w = ease(P.wind);
   const r = set.ready, b = P.strikeY && P.strikeY > TH+0.34 ? SMASH_BACK : set.back;
   return L2W(P, p, [lerp(r[0], b[0], w), lerp(r[1], b[1], w) + yAdj*w, lerp(r[2], b[2], w)], out);
@@ -1461,7 +1497,7 @@ function poseChar(p){
   pad.visible = !blasting; C.blaster.visible = blasting;
   if (blasting){ const Vb = G.pl[1-p]; C.blaster.position.copy(hand); C.blaster.lookAt(Vb.x, 1.3, Vb.z); }
   pad.position.copy(hand);
-  const closing = sw ? (sw.kind==='chop' ? -0.7 : sw.kind==='smash' ? 0.6 : 0.4) : P.wind*0.2;
+  const closing = sw ? (sw.kind==='chop' ? -0.7 : sw.kind==='trick' ? -1.15 : sw.kind==='smash' ? 0.6 : 0.4) : G.ph==='serve' && G.sv===p && G.srv.state==='trick' ? -0.9 : P.wind*0.2;
   const ay = padY.copy(hand).sub(elbow).normalize();                     // handle runs along the forearm
   const az = padZ.set(0, 0.15, -s); az.addScaledVector(ay, -az.dot(ay)); // face points at the net, square to the handle
   if (az.lengthSq() < 1e-4) az.set(0, 0, -s); az.normalize();
@@ -1616,7 +1652,7 @@ function hud(){
   if (myServeHold() && !trickHinted && G.t > 0.4){ trickHinted = true; try { if (!localStorage.getItem('tableside:trickHint')){ localStorage.setItem('tableside:trickHint', '1'); toast('Your serve: tap to toss, or hold for a trick serve'); } } catch(e){} }
   $('shotmods').hidden = !(TOUCH && ['cpu','local','host','guest'].includes(mode) && ov.hidden && G.ph==='rally');
   const trickOn = mode!=='attract' && G.ph==='serve' && G.srv.state==='trick';
-  $('meter').hidden = !trickOn; if (trickOn) $('needle').style.left = (meterPos(G.srv.t)*100) + '%';
+  $('meter').hidden = !trickOn; if (trickOn){ const lk = G.srv.lock; $('needle').style.left = ((lk != null ? lk : meterPos(G.srv.t))*100) + '%'; $('meter').classList.toggle('locked', lk != null); $('meter').classList.toggle('good', lk != null && Math.abs(lk - 0.5) <= TRICK_ZONE); }
   let pr = '';
   if (mode!=='attract' && mode!=='spectate' && G.ph==='serve'){
     const mine = mode==='local' ? G.sv : me;
@@ -1646,7 +1682,7 @@ function pack(){
   return { b:[b.x,b.y,b.z,b.vx,b.vy,b.vz,b.ts,b.ss].map(r3), ph:G.ph, t:r3(G.t), sv:G.sv, fi:G.first, sc:G.sc, gm:G.games, gn:G.gameNo, gs:G.gameScores, fmt:G.fmt,
     pl: G.pl.map(P => [r3(P.x), r3(P.z), P.bh?1:0, r3(P.wind), P.swing ? [P.swing.kind, r3(G.clock - P.swing.t0), P.swing.bh?1:0, P.swing.hit ? [r3(P.swing.hit.x), r3(P.swing.hit.y), r3(P.swing.hit.z)] : null] : null, r3(P.cheer), r3(P.slump), P.strikeY ? r3(P.strikeY) : 0, r3(P.tx), r3(P.tz), P.emote ? [P.emote.k, r3(G.clock - P.emote.t0), P.emote.arrivedAt != null ? r3(G.clock - P.emote.arrivedAt) : null] : null, P.jumpAt != null ? r3(G.clock - P.jumpAt) : null, P.ko != null ? r3(G.clock - P.ko) : null, r3(P.yawX||0)]),
     eo: G.eo ?? -1,
-    srv:G.srv.state, srvT:r3(G.srv.t||0), ev:G.ev, qp:G.qp, lh:G.lh, h:G.hits, lg:G.longest, ra:G.rally, ov:G.over, mid:G.mid, sa:G.sa,
+    srv:G.srv.state, srvT:r3(G.srv.t||0), srvL: G.srv.lock != null ? r3(G.srv.lock) : null, ev:G.ev, qp:G.qp, lh:G.lh, h:G.hits, lg:G.longest, ra:G.rally, ov:G.over, mid:G.mid, sa:G.sa,
     st:G.st, ro:G.R.opp||0, sk: G.sk && !G.sk.done ? [G.sk.p, r3(G.clock - G.sk.t)] : null, bn: G.bounce ? [r3(G.bounce.x), r3(G.bounce.z)] : null };
 }
 /* Two links run side by side. A direct browser-to-browser link (WebRTC via PeerJS) is fastest, but some networks
@@ -1886,7 +1922,7 @@ function applyHost(g){
   if (g.ph==='wait' && G.ph!=='wait') {}
   G.hits = g.h; G.ph = g.ph; G.t = g.t; G.sv = g.sv; G.first = g.fi; G.sc = g.sc.slice(); G.games = g.gm.slice(); G.gameNo = g.gn; G.gameScores = g.gs; G.fmt = g.fmt;
   G.eo = g.eo ?? -1; if (G.ph!=='point') net.pendingEmote = null;
-  G.srv.state = g.srv; G.srv.t = g.srvT || 0; G.ev = g.ev; G.qp = g.qp; G.lh = g.lh; G.longest = g.lg; G.rally = g.ra; G.mid = g.mid; G.sa = g.sa; G.st = g.st;
+  G.srv.state = g.srv; G.srv.t = g.srvT || 0; G.srv.lock = g.srvL ?? null; G.ev = g.ev; G.qp = g.qp; G.lh = g.lh; G.longest = g.lg; G.rally = g.ra; G.mid = g.mid; G.sa = g.sa; G.st = g.st;
   G.R.hitter = G.ph==='rally' ? (b.vz > 0 ? 1 : 0) : -1; G.R.done = G.ph!=='rally'; G.R.opp = g.ro || 0;   // the guest needs to know the ball has already bounced on its side
   g.pl.forEach((a, i) => {
     const P = G.pl[i]; P.tx = a[0]; P.tz = a[1]; P.ix = a[8]; P.iz = a[9]; P.bh = !!a[2];
@@ -2037,7 +2073,7 @@ function toTitle(){
     <button class="btn" id="mOnline">Play a friend online <small>your own screens</small></button>
     <button class="btn" id="mLocal">Same device <small>${TOUCH ? 'two on one screen' : 'two on one keyboard'}</small></button>
     <div class="row2" style="grid-template-columns:1fr 1fr"><button class="btn center" id="mHow">How to play</button><button class="btn center" id="mRec">Records</button></div>
-    <p class="note" style="text-align:center">Version 24</p>
+    <p class="note" style="text-align:center">Version 25</p>
     <button class="btn ghost" id="mProfile">Player: ${esc(net.nick || 'set your name')}<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${COLORS[colors[0]].css};margin-left:8px"></span></button>`);
   $('mCpu').onclick = () => { unlockAudio(); needProfile(cpuSetup); };
   $('mOnline').onclick = () => { unlockAudio(); needProfile(onlineMenu); };
@@ -2072,7 +2108,7 @@ function howTo(back){
       <b>Long rallies</b><span>Past 20 shots both players are pushed back off the table: faster, riskier, louder. Win a rally of 15+ and you get to celebrate: fist pump, spin, bow, a K.O. punch or the blaster (buttons, or keys <kbd>1</kbd>–<kbd>5</kbd>).</span>
       <b>Chop war</b><span>Every chop in a row piles on more backspin. Keep pushing it back and it gets nearly unplayable; lift it with real topspin to break the cycle.</span>
       <b>Heavy spin</b><span>A perfectly timed, fast, full swing up or down loads the ball with spin: a heavy loop dives and kicks, a heavy chop stops dead.</span>
-      <b>Trick serve</b><span>Press <kbd>T</kbd> or tap <b>Trick serve</b> before your toss. A huge toss, a spin, and a meter sweeps fast: swing as the needle crosses the narrow green zone. Nail it and the serve is nearly unreturnable. Miss and it's a fault.</span>
+      <b>Trick serve</b><span>Press <kbd>T</kbd> or tap <b>Trick serve</b> before your toss. A huge toss, a spin, and a meter sweeps fast: swing as the needle crosses the narrow green zone. Nail it and you scoop an underhand hook that bends in from wide and breaks sideways off the bounce. Miss and you get a fat floater to be smashed, or a fault the further off you are.</span>
       <b>Serve</b><span>Tap once to toss, then again as the ball drops into the ring. It must bounce on your side first.</span>
       <b>Spin</b><span>Topspin kicks forward off the table. Backspin checks up and drops into the net if you just block it, so swing topspin against a chop.</span>
     </div>
